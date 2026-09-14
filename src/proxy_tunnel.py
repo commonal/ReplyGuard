@@ -2,7 +2,7 @@
 
 Why this exists
 ---------------
-In networks where api/gmail servers are blocked (e.g. GFW), the native
+In networks where external mail or approval APIs are blocked, the native
 asyncio TCP paths in `aioimaplib` / `aiosmtplib` fail with SSL EOF because
 those libraries do NOT read system proxy env vars. We open a tunnel through
 a locally-running proxy and hand the raw socket to the mail library:

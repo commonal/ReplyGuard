@@ -8,9 +8,9 @@ Provides:
     .read.get_customer_history(customer_email)    → list[HistoryEntry]
     .read.get_kb_article(query)                   → KBResult
     .email.send(params)                           → EmailSendResult
-    .slack.post_approval_request(params)          → SlackPostResult
-    .slack.update_message(params)                 → SlackUpdateResult
-    .slack.open_edit_modal(params)                → SlackModalResult
+    .approval.post_approval_request(params)       → ApprovalPostResult
+    .approval.update_message(params)              → ApprovalUpdateResult
+    .slack.*                                      → compatibility alias
 
 Design invariants:
   - Real stdio subprocess per server — capability isolation is a runtime boundary, not naming.
@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
 from collections.abc import AsyncIterator
@@ -38,6 +39,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from pydantic import BaseModel, Field
 
+from src.config import settings
+
 # ---------------------------------------------------------------------------
 # Path to server scripts (Windows-friendly)
 # ---------------------------------------------------------------------------
@@ -45,6 +48,7 @@ _MCP_DIR = pathlib.Path(__file__).parent.parent / "mcp_server"
 _READ_SERVER   = _MCP_DIR / "support_read.py"
 _EMAIL_SERVER  = _MCP_DIR / "support_email_write.py"
 _SLACK_SERVER  = _MCP_DIR / "support_slack_write.py"
+_FEISHU_SERVER = _MCP_DIR / "support_feishu_write.py"
 
 
 # ===========================================================================
@@ -146,6 +150,14 @@ class SlackModalResult(BaseModel):
     """Output from open_edit_modal tool."""
     ok: bool
     view_id: str
+
+
+# Generic aliases for the domestic approval-channel implementation. The
+# Slack-named models remain exported so old tests and checkpoints keep working.
+ApprovalPostParams = SlackPostParams
+ApprovalPostResult = SlackPostResult
+ApprovalUpdateParams = SlackUpdateParams
+ApprovalUpdateResult = SlackUpdateResult
 
 
 # ===========================================================================
@@ -263,14 +275,14 @@ class _EmailClient:
         return EmailSendResult.model_validate(data)
 
 
-class _SlackClient:
-    """Thin async wrapper over the support_slack_write MCP server session."""
+class _ApprovalClient:
+    """Thin async wrapper over the configured approval-channel MCP session."""
 
     def __init__(self, session: ClientSession) -> None:
         self._session = session
 
     async def post_approval_request(self, params: SlackPostParams) -> SlackPostResult:
-        """Post Block Kit approval message to Slack channel."""
+        """Post an approval message to the configured approval channel."""
         raw = await self._session.call_tool(
             "post_approval_request",
             arguments=params.model_dump(),
@@ -279,7 +291,7 @@ class _SlackClient:
         return SlackPostResult.model_validate(data)
 
     async def update_message(self, params: SlackUpdateParams) -> SlackUpdateResult:
-        """Update an existing Slack message in-place."""
+        """Update an existing approval message in-place."""
         raw = await self._session.call_tool(
             "update_message",
             arguments=params.model_dump(),
@@ -288,13 +300,18 @@ class _SlackClient:
         return SlackUpdateResult.model_validate(data)
 
     async def open_edit_modal(self, params: SlackModalParams) -> SlackModalResult:
-        """Open a Slack views.open edit modal for the Edit HITL flow."""
+        """Open the legacy Slack edit modal, when the Slack fallback is active."""
         raw = await self._session.call_tool(
             "open_edit_modal",
             arguments=params.model_dump(),
         )
         data = _extract_result(raw)
         return SlackModalResult.model_validate(data)
+
+
+# Compatibility name for code that imported the private class in the original
+# Slack-only implementation.
+_SlackClient = _ApprovalClient
 
 
 # ===========================================================================
@@ -308,12 +325,13 @@ class MCPClientRouter:
         async with MCPClientRouter() as router:
             profile = await router.read.get_crm_profile("alice@example.com")
             result  = await router.email.send(EmailSendParams(...))
-            post    = await router.slack.post_approval_request(SlackPostParams(...))
+            post    = await router.approval.post_approval_request(SlackPostParams(...))
 
     Attributes:
         read:   _ReadClient   — CRM + KB retrieval (READ-ONLY capability)
-        email:  _EmailClient  — Gmail SMTP send (EMAIL WRITE capability)
-        slack:  _SlackClient  — Slack post/update/modal (SLACK WRITE capability)
+        email:    _EmailClient     — enterprise SMTP send (EMAIL WRITE capability)
+        approval: _ApprovalClient  — Feishu/Slack post/update capability
+        slack:    compatibility alias for approval
 
     Three separate stdio subprocesses are spawned (one per server). All are
     torn down cleanly on exit, even on exception.
@@ -324,7 +342,10 @@ class MCPClientRouter:
         self._stack: AsyncExitStack | None = None
         self.read: _ReadClient | None = None
         self.email: _EmailClient | None = None
-        self.slack: _SlackClient | None = None
+        self.approval: _ApprovalClient | None = None
+        # Compatibility alias: nodes and existing tests still use `.slack`.
+        # When APPROVAL_PROVIDER=feishu this object is backed by Feishu, not Slack.
+        self.slack: _ApprovalClient | None = None
 
     async def __aenter__(self) -> MCPClientRouter:
         self._stack = AsyncExitStack()
@@ -344,11 +365,17 @@ class MCPClientRouter:
         )
         self.email = _EmailClient(email_session)
 
-        # --- SLACK WRITE server ---
-        slack_session = await self._stack.enter_async_context(
-            _make_session(python, str(_SLACK_SERVER))
+        # --- APPROVAL WRITE server ---
+        # Prefer a live process env override (useful for tests), then fall
+        # back to pydantic-settings so direct graph_runner users also honor
+        # APPROVAL_PROVIDER from .env without requiring src.server first.
+        provider = os.environ.get("APPROVAL_PROVIDER", settings.approval_provider).strip().lower()
+        approval_server = _SLACK_SERVER if provider == "slack" else _FEISHU_SERVER
+        approval_session = await self._stack.enter_async_context(
+            _make_session(python, str(approval_server))
         )
-        self.slack = _SlackClient(slack_session)
+        self.approval = _ApprovalClient(approval_session)
+        self.slack = self.approval
 
         return self
 
@@ -358,6 +385,7 @@ class MCPClientRouter:
             self._stack = None
         self.read = None
         self.email = None
+        self.approval = None
         self.slack = None
 
 
@@ -376,7 +404,7 @@ async def _make_session(
     """
     # CRITICAL: pass env=dict(os.environ) explicitly — by default the MCP
     # stdio_client spawns the subprocess with a SANITIZED env (no inheritance),
-    # which means SLACK_BOT_TOKEN, GMAIL_APP_PASSWORD, etc. are missing in
+    # which means FEISHU_APP_SECRET, EMAIL_APP_PASSWORD, etc. are missing in
     # the child process and the MCP servers raise "X must be set in
     # environment" at first tool call. The parent process has these via
     # load_dotenv() in src/server.py — pass them through explicitly.

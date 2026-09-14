@@ -1,6 +1,6 @@
 # HITL 客户支持 Agent——架构
 
-> 一个生产风格的客户支持系统，将 LLM 推理、确定性策略执行、人工审批工作流和持久化执行结合起来。系统使用真实 Gmail 收发、Slack 多频道审批，以及三个按能力隔离的 MCP Server。
+> 一个生产风格的客户支持系统，将 LLM 推理、确定性策略执行、人工审批工作流和持久化执行结合起来。系统使用真实腾讯/网易企业邮箱收发、飞书测试企业交互审批，以及三个按能力隔离的 MCP Server。
 
 ## 系统分层
 
@@ -11,12 +11,12 @@
 | 1 | **接入层 Ingestion** | 接收客户邮件并发出回复邮件 | `src/email_listener.py`（IMAP）+ MCP Email Write（SMTP） |
 | 2 | **编排层 Orchestration** | 安排节点顺序、持久化状态、从崩溃中恢复 | `src/graph.py`（LangGraph + SQLite checkpointer） |
 | 3 | **智能层 Intelligence** | 调用 LLM：分类、起草、总结变化 | `src/llm.py` + `src/nodes.py` |
-| 4 | **策略层 Policy** | 两道门控、频道选择、知识库检索 | `src/policy.py` + `src/slack_router.py` + 通过 MCP Read 访问 ACME KB |
-| 5 | **HITL 层** | Slack 通知、interrupt、操作处理器、编辑模态框 | `src/server.py` + `src/slack_handler.py` + MCP Slack Write |
+| 4 | **策略层 Policy** | 两道门控、审批目的地选择、知识库检索 | `src/policy.py` + `src/slack_router.py` + 通过 MCP Read 访问 ACME KB |
+| 5 | **HITL 层** | 飞书卡片通知、interrupt、回调处理器、表单编辑 | `src/server.py` + `src/feishu_handler.py` + MCP Approval Write |
 | 6 | **执行层 Execution** | 组装负载、幂等发送、记录审计日志 | `src/nodes.py` 中的 Finalize / Send Email / Audit |
 | 7 | **可观测层 Observability** | Trace、成本跟踪、指标 | `src/llm.py` 中的 LangSmith 装饰器 + `src/metrics.py` 中的 Prometheus |
 
-替换任意一层都应当是配置变更，而不是重写系统。例如，生产部署可以用 SES 替换 Gmail/IMAP、用 Salesforce 替换模拟 CRM、用公司的真实策略文档替换 ACME 语料，而图逻辑保持不变。
+替换任意一层都应当是配置变更，而不是重写系统。例如，生产部署可以用 webhook 入站服务替换企业邮箱 IMAP、用 Salesforce 替换模拟 CRM、用公司的真实策略文档替换 ACME 语料，而图逻辑保持不变。
 
 ## 端到端流程（30 秒总览）
 
@@ -28,8 +28,8 @@ flowchart TD
     S3[3. 生成回复草稿]:::blue
     S4{4. 可以安全发送吗？}:::yellow
     S5[5. 通过 SMTP 自动发送]:::blue
-    S6[6. 按意图、客户等级和风险<br/>选择 Slack 频道]:::slack
-    S7[7. 团队在对应 Slack 频道<br/>批准或编辑]:::orange
+    S6[6. 按意图、客户等级和风险<br/>选择飞书审批群聊]:::approval
+    S7[7. 团队在飞书卡片中<br/>批准或编辑]:::orange
     S8[8. 将回复发给客户<br/>并归入原邮件线程]:::email
     S9[9. 审计 + LangSmith trace]:::green
 
@@ -44,7 +44,7 @@ flowchart TD
     classDef email fill:#fff3bf,stroke:#f59e0b,stroke-width:2px,color:#000
     classDef blue fill:#a5d8ff,stroke:#2563eb,stroke-width:2px,color:#000
     classDef yellow fill:#fff3bf,stroke:#f59e0b,stroke-width:2px,color:#000
-    classDef slack fill:#d0bfff,stroke:#8b5cf6,stroke-width:2px,color:#000
+    classDef approval fill:#d0bfff,stroke:#8b5cf6,stroke-width:2px,color:#000
     classDef orange fill:#ffd8a8,stroke:#d97706,stroke-width:2px,color:#000
     classDef green fill:#c3fae8,stroke:#15803d,stroke-width:2px,color:#000
 ```
@@ -55,7 +55,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Inbox([support@yourcompany.com<br/>Gmail 收件箱]):::email
+    Inbox([support@yourcompany.com<br/>企业邮箱收件箱]):::email
     Inbox --> Listener[Email Listener<br/>优先使用 IMAP IDLE<br/>降级时约每 30 秒轮询]:::node
     Listener --> PII[PII 脱敏<br/>中间件]:::middleware
     PII --> Classify[意图分类<br/>intent + sentiment + risk_flags + risk_level]:::node
@@ -69,18 +69,18 @@ flowchart TD
     Confidence -->|高于阈值| AutoSendMarker[auto_send_marker<br/>在状态中标记，供审计使用]:::node
     AutoSendMarker --> Finalize
 
-    Router -->|angry| ChCmp[#support-complaints]:::slack
-    Router -->|intent=refund| ChRef[#support-refunds]:::slack
-    Router -->|其他意图| ChTech[#support-technical<br/>兜底频道]:::slack
+    Router -->|angry| ChCmp[FEISHU_CHAT_COMPLAINTS<br/>投诉群聊]:::approval
+    Router -->|intent=refund| ChRef[FEISHU_CHAT_REFUNDS<br/>退款群聊]:::approval
+    Router -->|其他意图| ChTech[FEISHU_CHAT_TECHNICAL<br/>兜底群聊]:::approval
 
-    ChCmp --> SlackPost
-    ChRef --> SlackPost
-    ChTech --> SlackPost
-    SlackPost[Slack 通知<br/>发送 Block Kit 消息<br/>保存 slack_message_ts<br/>此时还不 interrupt]:::ui
+    ChCmp --> ApprovalPost
+    ChRef --> ApprovalPost
+    ChTech --> ApprovalPost
+    ApprovalPost[飞书通知<br/>发送交互式卡片<br/>保存消息 ID 到 slack_message_ts<br/>此时还不 interrupt]:::ui
 
-    SlackPost --> Interrupt[Interrupt Gate<br/>独立节点，只执行 interrupt&#40;&#41;<br/>checkpointer 在 super-step 保存状态<br/>通过 webhook 恢复]:::hitl
+    ApprovalPost --> Interrupt[Interrupt Gate<br/>独立节点，只执行 interrupt&#40;&#41;<br/>checkpointer 在 super-step 保存状态<br/>通过 Feishu 回调恢复]:::hitl
 
-    Interrupt -->|webhook 签名通过<br/>Command resume| Action{人工操作？}:::decision
+    Interrupt -->|回调令牌通过<br/>Command resume| Action{人工操作？}:::decision
     Action -->|拒绝并说明原因| RejectCheck{rejection_count >= 3？}:::decision
     Action -->|批准或编辑| Elapsed{审批延迟 > 15 分钟？}:::decision
 
@@ -94,41 +94,41 @@ flowchart TD
     Summarize -->|update_message<br/>在同一消息发布差异<br/>再次 interrupt 等待决定| Interrupt
 
     Finalize[Finalize Action<br/>恢复 PII + 组装负载<br/>+ In-Reply-To 和 References<br/>+ Subject: Re: ... 以维持线程]:::node
-    Finalize --> SendEmail[发送邮件<br/>Gmail SMTP<br/>应用层幂等<br/>已有 sent_message_id 时跳过]:::node
+    Finalize --> SendEmail[发送邮件<br/>企业邮箱 SMTP<br/>应用层幂等<br/>已有 sent_message_id 时跳过]:::node
 
     SendEmail -. SMTP .-> CustInbox([客户收件箱<br/>回复归入原线程]):::email
     SendEmail --> Audit[只追加审计日志<br/>+ 关闭 LangSmith trace]:::terminal
     Audit --> End([结束]):::terminal
 
     Enrich -. 读 .-> MCPRead[(MCP Read Server<br/>get_crm_profile<br/>get_customer_history<br/>get_kb_article)]:::mcpread
-    SendEmail -. 写 .-> MCPEmail[(MCP Email Write<br/>通过 Gmail SMTP 发送)]:::mcpemail
-    SlackPost -. 写 .-> MCPSlack[(MCP Slack Write<br/>post_approval_request<br/>update_message<br/>views.open 编辑模态框)]:::mcpslack
-    Summarize -. 写 .-> MCPSlack
-    ManualQueue -. 写 .-> MCPSlack
+    SendEmail -. 写 .-> MCPEmail[(MCP Email Write<br/>通过腾讯/网易 SMTP 发送)]:::mcpemail
+    ApprovalPost -. 写 .-> MCPApproval[(MCP Approval Write<br/>post_approval_request<br/>update_message<br/>Feishu 表单卡片)]:::mcpapproval
+    Summarize -. 写 .-> MCPApproval
+    ManualQueue -. 写 .-> MCPApproval
 
     classDef email fill:#fff3bf,stroke:#f59e0b,stroke-width:2px,color:#000
     classDef middleware fill:#d0bfff,stroke:#8b5cf6,stroke-width:2px,color:#000
     classDef node fill:#a5d8ff,stroke:#2563eb,stroke-width:2px,color:#000
     classDef decision fill:#fff3bf,stroke:#f59e0b,stroke-width:2px,color:#000
     classDef hitl fill:#ffc9c9,stroke:#dc2626,stroke-width:2px,color:#000
-    classDef slack fill:#e9d5ff,stroke:#7e22ce,stroke-width:2px,color:#000
+    classDef approval fill:#e9d5ff,stroke:#7e22ce,stroke-width:2px,color:#000
     classDef ui fill:#ffd8a8,stroke:#d97706,stroke-width:2px,color:#000
     classDef mcpread fill:#99e9f2,stroke:#0891b2,stroke-width:2px,color:#000
     classDef mcpemail fill:#fcc2d7,stroke:#be185d,stroke-width:2px,color:#000
-    classDef mcpslack fill:#fde68a,stroke:#a16207,stroke-width:2px,color:#000
+    classDef mcpapproval fill:#fde68a,stroke:#a16207,stroke-width:2px,color:#000
     classDef terminal fill:#c3fae8,stroke:#15803d,stroke-width:2px,color:#000
 ```
 
 ## 关键设计点
 
-- **发送 Slack 消息必须发生在 interrupt 之前。**`interrupt()` 触发后执行立即暂停，该节点后面的代码不会运行。正确顺序是 `Channel Router → Slack Notification（发送消息并保存时间戳）→ Interrupt Gate（只调用 interrupt()）`。颠倒顺序会导致工作流永久暂停，却没有任何 Slack 消息。
+- **发送飞书审批卡片必须发生在 interrupt 之前。**`interrupt()` 触发后执行立即暂停，该节点后面的代码不会运行。正确顺序是 `Channel Router → Approval Notification（发送卡片并保存消息 ID）→ Interrupt Gate（只调用 interrupt()）`。颠倒顺序会导致工作流永久暂停，却没有任何飞书消息。
 - **策略门和置信度门彼此独立。**即使模型对退款请求置信度很高，也必须升级。顺序很重要：先检查策略，再检查置信度；先用更便宜的检查快速失败。
-- **三个 MCP Server 按能力拆分。**Read（CRM + KB）不能发送消息；Email Write 不能发 Slack；Slack Write 不能发邮件。即使检索阶段受到 Prompt Injection，也无法访问两个 I/O 渠道，影响范围被 Server 边界限制。
-- **频道路由按优先级执行，不是模糊判断。**当前版本是三个频道上的 `angry > by-intent`：`#support-complaints`、`#support-refunds`、兜底的 `#support-technical`。规格还在这两级之前定义了 `legal/compliance > Enterprise+risk`，根据 `adviserplan.md` 的范围约束暂缓实现；以后只需配置即可加入。
+- **三个 MCP Server 按能力拆分。**Read（CRM + KB）不能发送消息；Email Write 不能发审批卡片；Approval Write 不能发邮件。即使检索阶段受到 Prompt Injection，也无法访问两个 I/O 渠道，影响范围被 Server 边界限制。
+- **审批目的地路由按优先级执行，不是模糊判断。**当前版本是三个飞书群聊上的 `angry > by-intent`：投诉群、退款群、兜底技术群；测试阶段也可以让三条路由共用 `FEISHU_RECEIVE_ID`。规格还在这两级之前定义了 `legal/compliance > Enterprise+risk`，根据 `adviserplan.md` 的范围约束暂缓实现；以后只需配置即可加入。
 - **发送幂等属于应用层，而不是协议层。**SMTP 不会自动去重。Send 节点检查状态中的 `sent_message_id`，若已有值则跳过。`send_idempotency_key` 是查找键，状态字段是锁。这才是代码中“幂等发送”的含义。
 - **Finalize 与 Send 分离。**Finalize 只负责组合数据，包括恢复 PII、组装 payload 和邮件线程头；Send 才执行不可逆的 SMTP 调用。分离两者使部分执行后的重启更安全。
-- **15 分钟重新验证阈值是工程选择，不是神奇常数。**15 分钟以内客户状态通常不会显著变化；超过 15 分钟则更可能出现 CRM 更新。该值可通过环境变量按租户调整。如果长时间暂停后 `context_hash` 发生变化，`Summarize Changes` 会在同一 Slack 线程中发布差异，而不是静默重写草稿，使审批人基于完整新信息重新决定。
-- **拒绝路径会记录原因并限制循环次数。**点击 Reject 后弹出“为什么？（可选）”模态框，原因保存为 `rejection_reason` 并作为下一次 Draft 的附加上下文。拒绝三次后进入 Manual Queue。
+- **15 分钟重新验证阈值是工程选择，不是神奇常数。**15 分钟以内客户状态通常不会显著变化；超过 15 分钟则更可能出现 CRM 更新。该值可通过环境变量按租户调整。如果长时间暂停后 `context_hash` 发生变化，`Summarize Changes` 会在同一张飞书卡片上发布差异，而不是静默重写草稿，使审批人基于完整新信息重新决定。
+- **拒绝路径会记录原因并限制循环次数。**点击 Reject 后填写卡片中的拒绝原因，原因保存为 `rejection_reason` 并作为下一次 Draft 的附加上下文。拒绝三次后进入 Manual Queue。
 
 ## 实现规则（LangGraph 特有）
 
@@ -150,7 +150,7 @@ flowchart TD
 
 ## 审批界面
 
-目标是让人工在约 10 秒内完成决策，而不是两分钟。Slack 消息结构为：
+目标是让人工在约 10 秒内完成决策，而不是两分钟。飞书审批卡片结构为：
 
 1. 客户消息和邮件线程历史；
 2. **暂停原因**：展示触发了哪一道门、命中了哪条策略；
@@ -166,15 +166,15 @@ flowchart TD
 
 | 故障 | 系统行为 |
 |---|---|
-| 服务器在暂停期间崩溃 | LangGraph SQLite checkpoint 保存在最近一个 super-step。重启后 Slack 按钮仍可使用；webhook 通过 `slack_message_ts` 在 Interrupt Gate 恢复，状态被完整还原。 |
-| SMTP 短暂失败 | `send_retry_count++`，使用同一个 `send_idempotency_key` 最多重试三次。之后进入 `failed_manual` → Manual Queue，并通知 Slack。 |
+| 服务器在暂停期间崩溃 | LangGraph SQLite checkpoint 保存在最近一个 super-step。重启后飞书卡片按钮仍可使用；回调通过 `slack_message_ts` 在 Interrupt Gate 恢复，状态被完整还原。 |
+| SMTP 短暂失败 | `send_retry_count++`，使用同一个 `send_idempotency_key` 最多重试三次。之后进入 `failed_manual` → Manual Queue，并更新飞书卡片。 |
 | 一小时内无人响应 | Agent 再次提醒频道：“⏰ 仍在等待——已通知备用频道。”到 `sla_deadline`（24 小时）仍无响应时，自动转入 Manual Queue。 |
-| 客户在暂停期间追发邮件 | `ticket_external_status` 变为 `superseded`，旧草稿被丢弃。Slack 更新：“⚠️ 客户已回复——当前工单被替代，请查看 ticket-XXXX。”追发内容作为新工单进入。 |
-| 客户从外部取消工单 | `ticket_external_status` 变为 `cancelled`。Slack 更新：“🚫 客户已取消——关闭工单。”不发送邮件。 |
-| 客户邮件包含 Prompt Injection | Read MCP 没有 `send_email` 和 `post_slack`。即使检索阶段受到越狱攻击，在显式 Send / Slack Write 节点前也没有访问 I/O 渠道的路径。能力隔离限制影响范围。 |
-| Slack webhook 签名不匹配 | FastAPI 返回 401，不恢复工作流，并记录为安全事件。 |
-| Slack 时间戳超过五分钟 | 作为重放攻击防护，返回 401。 |
-| 人工连续拒绝三次 | 自动进入 Manual Queue，Slack 显示：“🚦 已拒绝 3 次——转人工队列。”并通过邮件通知客户。 |
+| 客户在暂停期间追发邮件 | `ticket_external_status` 变为 `superseded`，旧草稿被丢弃。飞书更新：“⚠️ 客户已回复——当前工单被替代，请查看 ticket-XXXX。”追发内容作为新工单进入。 |
+| 客户从外部取消工单 | `ticket_external_status` 变为 `cancelled`。飞书更新：“🚫 客户已取消——关闭工单。”不发送邮件。 |
+| 客户邮件包含 Prompt Injection | Read MCP 没有 `send_email` 和 `post_approval_request`。即使检索阶段受到越狱攻击，在显式 Send / Approval Write 节点前也没有访问 I/O 渠道的路径。能力隔离限制影响范围。 |
+| 飞书回调令牌不匹配 | FastAPI 返回 401，不恢复工作流，并记录为安全事件。 |
+| 飞书回调没有及时返回 | 先在回调窗口内返回 toast，再异步恢复工作流；耗时的 LLM、SMTP 或重新验证不会阻塞回调。 |
+| 人工连续拒绝三次 | 自动进入 Manual Queue，飞书显示：“🚦 已拒绝 3 次——转人工队列。”并通过邮件通知客户。 |
 | LangSmith 不可用 | Agent 继续运行；trace 在本地缓冲，LangSmith 恢复后重放。可观测性故障不影响用户流程。 |
 | LLM 被限流或超时 | 退避后重试一次；第二次仍失败则按低置信度处理，升级给人工。 |
 | Hash 未变化，但人工延迟超过 24 小时 | SLA 仍然过期，进入 Manual Queue。时间规则优先于陈旧性检查。 |
@@ -187,12 +187,12 @@ flowchart TD
 | PII 脱敏与恢复中间件 | `src/pii.py` |
 | Classify、Enrich、Draft、Summarize Changes、Finalize、Audit 节点 | `src/nodes.py` |
 | 策略与置信度路由、拒绝次数保护 | `src/policy.py` |
-| 带优先级覆盖的 Channel Router | `src/slack_router.py` |
+| 带优先级覆盖的审批目的地 Router | `src/slack_router.py`（保留旧文件名以兼容） |
 | Interrupt 和 checkpointer 接线 | `src/graph.py` |
-| FastAPI、Slack webhook HMAC 校验、编辑模态框 | `src/server.py` + `src/slack_handler.py` |
+| FastAPI、飞书回调令牌校验、卡片表单 | `src/server.py` + `src/feishu_handler.py` |
 | MCP **Read** Server（CRM + KB） | `mcp_server/support_read.py` |
-| MCP **Email Write** Server（Gmail SMTP，幂等） | `mcp_server/support_email_write.py` |
-| MCP **Slack Write** Server（post / update / views.open） | `mcp_server/support_slack_write.py` |
+| MCP **Email Write** Server（腾讯/网易 SMTP，幂等） | `mcp_server/support_email_write.py` |
+| MCP **Approval Write** Server（Feishu post / update / form） | `mcp_server/support_feishu_write.py` |
 | MCP Client Router | `src/mcp_client.py` |
 | LLM Client + LangSmith tracing 装饰器 | `src/llm.py` |
 | Prometheus 指标 + `@timed_node` 装饰器 | `src/metrics.py` |

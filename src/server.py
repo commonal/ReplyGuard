@@ -1,10 +1,11 @@
-"""FastAPI app — wires the IMAP listener, Slack handler, and health endpoint.
+"""FastAPI app — wires the enterprise email listener, approval handler, and health endpoint.
 
 Layout:
   - GET  /health                  — process liveness
-  - POST /slack/events            — Slack webhook (only used when not in Socket Mode)
+  - POST /feishu/events           — Feishu card callback (default approval channel)
+  - POST /slack/events            — legacy Slack webhook fallback
   - background task: IMAP listener pushing into graph_runner.start_ticket
-  - background task: Slack Socket Mode loop (when SLACK_APP_TOKEN is set)
+  - background task: legacy Slack Socket Mode loop (when Slack fallback is active)
 
 The Bolt SDK's AsyncSlackRequestHandler converts FastAPI request objects into
 Bolt's internal Request shape and runs all the registered action/view handlers.
@@ -42,6 +43,7 @@ from src import graph_runner  # noqa: E402
 from src import metrics as _metrics  # noqa: E402, F401
 from src.config import settings  # noqa: E402
 from src.email_listener import listen_forever  # noqa: E402
+from src.feishu_handler import handle_feishu_event, verify_feishu_verification_token  # noqa: E402
 from src.slack_handler import get_app, run_socket_mode  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -52,25 +54,35 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Sync init: SQLite checkpointer + compiled graph.
     graph_runner.init()
-    # Async init: spawn MCP server subprocesses (read / email / slack).
+    # Async init: spawn MCP server subprocesses (read / email / approval).
     await graph_runner.startup()
 
     bg_tasks: list[asyncio.Task[Any]] = []
 
     # IMAP listener — feeds new emails into the graph.
-    if settings.gmail_user and settings.gmail_app_password:
+    if settings.email_user and settings.email_app_password:
         bg_tasks.append(asyncio.create_task(listen_forever(graph_runner.start_ticket)))
-        log.info("IMAP listener started for %s", settings.gmail_user)
+        log.info(
+            "IMAP listener started for %s via %s",
+            settings.email_user,
+            settings.email_provider,
+        )
     else:
-        log.warning("IMAP listener NOT started (missing GMAIL_USER / GMAIL_APP_PASSWORD)")
+        log.warning("IMAP listener NOT started (missing EMAIL_USER / EMAIL_APP_PASSWORD)")
 
-    # Slack Socket Mode (preferred for dev — no public URL needed).
-    if settings.slack_app_token and settings.slack_bot_token and settings.slack_signing_secret:
+    # Feishu uses the FastAPI callback route. Slack Socket Mode remains an
+    # explicit compatibility fallback and is never started for the default
+    # Feishu provider.
+    if settings.approval_provider.lower() == "slack" and (
+        settings.slack_app_token and settings.slack_bot_token and settings.slack_signing_secret
+    ):
         bg_tasks.append(asyncio.create_task(run_socket_mode()))
-        log.info("Slack Socket Mode started")
+        log.info("Legacy Slack Socket Mode started")
+    elif settings.approval_provider.lower() == "feishu":
+        log.info("Feishu approval callback available at /feishu/events")
     else:
         log.warning(
-            "Slack Socket Mode NOT started (missing SLACK_APP_TOKEN / SLACK_BOT_TOKEN / SLACK_SIGNING_SECRET)"
+            "Approval callback NOT started (check APPROVAL_PROVIDER and provider credentials)"
         )
 
     try:
@@ -112,14 +124,27 @@ async def health() -> Any:  # dict[str, Any] for 200 paths; JSONResponse for 503
       - `checkpointer_writable` — the SQLite file underlying the
         AsyncSqliteSaver is on a writable path. Soft: log a warning if
         the file is missing (will be created lazily on first write).
-      - `slack_configured`, `gmail_configured` — surface-level config
+      - `approval_configured`, `email_configured` — surface-level config
+        (`slack_configured` / `gmail_configured` remain compatibility aliases).
         presence (was the only thing the prior `/health` did).
     """
     checks: dict[str, bool] = {
         "graph_compiled": graph_runner._graph is not None,
         "mcp_router_started": graph_runner._router is not None,
+        "approval_configured": bool(
+            (
+                settings.approval_provider.lower() == "feishu"
+                and settings.feishu_app_id
+                and settings.feishu_app_secret
+            )
+            or (
+                settings.approval_provider.lower() == "slack"
+                and settings.slack_bot_token
+            )
+        ),
+        "email_configured": bool(settings.email_user),
         "slack_configured": bool(settings.slack_bot_token),
-        "gmail_configured": bool(settings.gmail_user),
+        "gmail_configured": bool(settings.email_user),
     }
 
     # Soft check: SQLite checkpoint file location is writable.
@@ -176,6 +201,32 @@ async def slack_events(req: Request) -> Any:
     if not settings.slack_signing_secret:
         return JSONResponse({"error": "Slack not configured"}, status_code=503)
     return await _slack_handler().handle(req)
+
+
+# ---------------------------------------------------------------------------
+# Feishu card callback path (default approval channel).
+# ---------------------------------------------------------------------------
+
+
+@app.post("/feishu/events")
+async def feishu_events(req: Request) -> Any:
+    if settings.approval_provider.lower() != "feishu":
+        return JSONResponse({"error": "Feishu approval provider is disabled"}, status_code=503)
+    try:
+        body = await req.json()
+    except ValueError:
+        return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "JSON body must be an object"}, status_code=400)
+    if not verify_feishu_verification_token(body):
+        return JSONResponse({"error": "invalid Feishu verification token"}, status_code=401)
+    try:
+        return await handle_feishu_event(body)
+    except PermissionError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=401)
+    except RuntimeError as exc:
+        log.warning("Feishu callback rejected: %s", exc)
+        return JSONResponse({"error": str(exc)}, status_code=400)
 
 
 def main() -> None:

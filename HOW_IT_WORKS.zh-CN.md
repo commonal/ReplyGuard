@@ -1,34 +1,34 @@
 # 工作原理——端到端产品流程
 
-> 一个生产风格的客户支持系统，将 LLM 推理、确定性策略执行、人工审批工作流和持久化执行结合起来。系统使用真实邮件收发、真实的多频道 Slack 审批、虚构的 ACME SaaS Co 策略知识库，以及三个按能力隔离的 MCP Server。
+> 一个生产风格的客户支持系统，将 LLM 推理、确定性策略执行、人工审批工作流和持久化执行结合起来。系统使用真实企业邮箱收发、真实的飞书测试企业审批、虚构的 ACME SaaS Co 策略知识库，以及三个按能力隔离的 MCP Server。
 
 这是项目的标准叙事文档：面试时可以打开本文讲解，也可以把其中部分内容放进 README，或在演示中按本文走完整流程。`spec.md` 是构建规格，`docs/architecture.md` 包含架构图、状态结构和 LangSmith 标签表，而本文负责讲清楚系统如何工作。
 
-运行时分为七层（表格见 `docs/architecture.md`）：**接入层**（IMAP/SMTP）、**编排层**（LangGraph + SQLite checkpointer）、**智能层**（通过 OpenRouter 调用 LLM）、**策略层**（两道门控路由 + ACME 知识库检索）、**HITL 层**（Slack 通知 + interrupt + 操作处理器）、**执行层**（Finalize + Send + Audit）、**可观测层**（LangSmith trace + 成本跟踪）。下面的每一步都对应其中一层；这些层名也与代码目录结构相呼应。
+运行时分为七层（表格见 `docs/architecture.md`）：**接入层**（IMAP/SMTP）、**编排层**（LangGraph + SQLite checkpointer）、**智能层**（通过 OpenRouter 调用 LLM）、**策略层**（两道门控路由 + ACME 知识库检索）、**HITL 层**（飞书卡片通知 + interrupt + 回调处理器）、**执行层**（Finalize + Send + Audit）、**可观测层**（LangSmith trace + 成本跟踪）。下面的每一步都对应其中一层；这些层名也与代码目录结构相呼应。
 
 ---
 
 ## 准备工作（首次处理工单前完成一次）
 
-你有一个启用了 IMAP 和应用专用密码的 Gmail 账户 `support@yourcompany.com`。Slack 工作区中为本项目配置了三个频道：`#support-refunds`、`#support-technical`、`#support-complaints`，团队成员都已加入这些频道，Agent 也已启动。
+你有一个启用了 IMAP/SMTP 和客户端授权码的腾讯企业邮箱账户 `support@yourcompany.com`（也可切换为网易企业邮箱）。飞书测试企业中建了一个群聊，应用机器人已加入，Agent 也已启动。三个意图路由默认共用这个测试群聊，也可以分别配置三个群聊 ID。
 
-（规格中描述了六个频道，还包括 `#support-billing`、`#support-enterprise`、`#support-legal`，并采用四级优先路由。为了把构建时间控制在 6～10 小时，实际实现缩减为三个频道。参见文末“从规格中删减的内容”和 `src/slack_router.py` 的 docstring。以后若决定加入这些频道，只需修改配置，无需重写工作流。）
+（规格中描述了六个目的地，还包括 billing、enterprise、legal，并采用四级优先路由。为了把构建时间控制在 6～10 小时，实际实现缩减为三个意图路由；飞书测试阶段使用一个群聊即可。参见文末“从规格中删减的内容”和 `src/slack_router.py` 的 docstring。以后若决定增加群聊，只需修改配置，无需重写工作流。）
 
 ---
 
 ## 第 1 步——客户发送邮件
 
-假设客户名叫 Jamie。她在手机上打开 Gmail，写道：
+假设客户名叫 Jamie。她在手机上的邮件客户端写道：
 
 > *收件人：support@yourcompany.com*  
 > *主题：请退款*  
 > *我想申请 200 美元退款——你们的衬衫不合身。*
 
-她点击发送。邮件经过 Gmail 服务器，进入 `support@yourcompany.com` 的收件箱。**Jamie 开始等待。**从她的视角看不到任何内部流程，只看到手机回到了收件箱。
+她点击发送。邮件经过企业邮箱服务器，进入 `support@yourcompany.com` 的收件箱。**Jamie 开始等待。**从她的视角看不到任何内部流程，只看到手机回到了收件箱。
 
 ## 第 2 步——Email Listener 收到邮件（IDLE 约 1 秒，轮询降级约 30 秒）
 
-后台监听器 `src/email_listener.py` 通过 **IMAP IDLE** 连接 `support@yourcompany.com`。新邮件到达后，Gmail 通常会在一秒内推送通知。如果 IDLE 断开或不可用，监听器会降级为每 30 秒轮询一次。大规模生产环境一般会使用 SES、SendGrid Parse 或 Postmark 等基于 webhook 的入站邮件服务，在避免 IDLE 长连接开销的同时实现亚秒级延迟。
+后台监听器 `src/email_listener.py` 通过 **IMAP IDLE** 连接 `support@yourcompany.com`。新邮件到达后，腾讯/网易企业邮箱会推送通知；如果 IDLE 断开或不可用，监听器会降级为每 30 秒轮询一次。大规模生产环境一般会使用基于 webhook 的入站邮件服务，在避免 IDLE 长连接开销的同时实现亚秒级延迟。
 
 监听器解析出：
 
@@ -73,20 +73,20 @@ LLM 获得完整上下文，并收到提示：“以 ACME Policy 4.2.1 为依据
 
 > 如果这是一条简单 FAQ，例如“如何重置密码？”，Gate 1 和 Gate 2 都会通过，流程会直接跳到第 13 步，不需要人工参与。**这就是自动发送路径：大约 3 秒、零人工。**下面继续介绍人工审批路径。
 
-## 第 8 步——Channel Router 选择正确的 Slack 频道
+## 第 8 步——Channel Router 选择正确的审批目的地
 
 当前实现有两级优先级，按首次匹配生效：
 
-1. **客户是否愤怒？**否，当前情绪为 neutral；如果是，则进入 `#support-complaints`。
-2. **按意图路由？**是，`intent=refund`，因此进入 **`#support-refunds`**。
+1. **客户是否愤怒？**否，当前情绪为 neutral；如果是，则进入配置的投诉群聊。
+2. **按意图路由？**是，`intent=refund`，因此进入配置的退款群聊。
 
-将 `slack_channel="#support-refunds"` 保存到状态。
+将兼容字段 `slack_channel` 保存为飞书群聊 ID（例如 `oc_...`）。
 
-> 规格中的完整四级路由为 `legal/compliance > Enterprise+risk > angry > intent`，目前按 `src/slack_router.py` 的 docstring 延后实现。在当前版本中，既不是 `refund`、也不是 `angry` 的请求都会进入兜底频道 `#support-technical`。
+> 规格中的完整四级路由为 `legal/compliance > Enterprise+risk > angry > intent`，目前按 `src/slack_router.py` 的 docstring 延后实现。在当前版本中，既不是 `refund`、也不是 `angry` 的请求都会进入配置的飞书兜底群聊（默认变量为 `FEISHU_CHAT_TECHNICAL`；测试阶段也可以三条路由共用 `FEISHU_RECEIVE_ID`）。
 
-## 第 9 步——发送 Slack 通知（必须发生在 interrupt 之前）
+## 第 9 步——发送飞书审批卡片（必须发生在 interrupt 之前）
 
-Agent 调用 **MCP Slack Write Server** 的 `post_approval_request`。`#support-refunds` 中出现一条 Block Kit 消息：
+Agent 调用 **MCP Approval Write Server** 的 `post_approval_request`。飞书测试群聊中出现一张交互式审批卡片：
 
 ```text
 🟡 ticket-4421 · 退款 $200
@@ -105,11 +105,11 @@ Agent 调用 **MCP Slack Write Server** 的 `post_approval_request`。`#support-
 [批准]   [编辑]   [拒绝]
 ```
 
-Slack 返回消息时间戳，系统把它保存为 `slack_message_ts`。**发送 Slack 消息是一个独立节点，这里没有 `interrupt()`。**
+飞书返回消息 ID（通常为 `om_...`），系统把它保存到兼容字段 `slack_message_ts`。**发送审批卡片是一个独立节点，这里没有 `interrupt()`。**
 
 ## 第 10 步——Interrupt Gate（只负责暂停的独立节点）
 
-工作流在另一个节点中调用 `interrupt()`，该节点不做任何其他事情。根据**实现规则 1**，重复发送 Slack 等副作用,必须位于另一个节点，避免恢复执行时重复触发。
+工作流在另一个节点中调用 `interrupt()`，该节点不做任何其他事情。根据**实现规则 1**，发送飞书卡片等副作用必须位于另一个节点，避免恢复执行时重复触发。
 
 > **本项目遵守两条 LangGraph 规则。它们不是可选建议；违反后都可能产生不明显的静默故障：**
 >
@@ -117,27 +117,27 @@ Slack 返回消息时间戳，系统把它保存为 `slack_message_ts`。**发�
 >
 > **规则 2——**不要用 `try/except` 包裹 `interrupt()`。`interrupt()` 的工作原理是抛出一个由 LangGraph 运行时捕获的特殊异常。宽泛的 `try/except` 会直接吞掉它，使图卡住，或者完全跳过暂停。错误处理应放在其他节点中，或者不应该包裹interrupt。
 
-SQLite checkpointer 已经在上一个 super-step 边界保存状态。**执行会真正暂停。**即使服务器此时崩溃，重启后 Jamie 的工单仍然存在：状态、草稿和 Slack 消息都保持不变，消息按钮仍然有效，因为 webhook 可以通过 `slack_message_ts` 找到需要恢复的流程。
+SQLite checkpointer 已经在上一个 super-step 边界保存状态。**执行会真正暂停。**即使服务器此时崩溃，重启后 Jamie 的工单仍然存在：状态、草稿和飞书消息都保持不变，卡片按钮仍然有效，因为回调可以通过 `slack_message_ts` 找到需要恢复的流程。
 
-> **为什么顺序如此重要：**`interrupt()` 一旦触发，执行立即暂停，该节点后面的代码不会运行。如果把 Channel Router 和 Slack Notification 放在 interrupt 后面，它们永远不会执行，工作流会在没有发出任何 Slack 通知的情况下永久暂停。正确顺序永远是：Slack post → Interrupt Gate → resume。
+> **为什么顺序如此重要：**`interrupt()` 一旦触发，执行立即暂停，该节点后面的代码不会运行。如果把 Channel Router 和审批通知放在 interrupt 后面，它们永远不会执行，工作流会在没有发出任何飞书通知的情况下永久暂停。正确顺序永远是：Feishu post → Interrupt Gate → resume。
 
 **Jamie 仍在手机前等待，并不知道后台发生了什么。**
 
-## 第 11 步——Sarah 在 Slack 中操作
+## 第 11 步——Sarah 在飞书测试企业中操作
 
-值班客服 Sarah 在 `#support-refunds` 中看到消息。“暂停原因”面板和 ACME 策略原文让她可以在约 10 秒内作出决定，存在三条子路径：
+值班客服 Sarah 在飞书测试群聊中看到卡片。“暂停原因”面板和 ACME 策略原文让她可以在约 10 秒内作出决定，存在三条子路径：
 
-> **11a. 批准。**Sarah 点击 Approve。Slack 向 FastAPI 服务 `src/slack_handler.py` 发送 webhook。处理器：
+> **11a. 批准。**Sarah 点击“Approve”。飞书向 FastAPI 服务 `/feishu/events` 发送卡片回调。处理器快速校验回调令牌、提取工单 ID，然后异步恢复图：
 >
-> 1. 读取 `X-Slack-Request-Timestamp` 和原始请求体；
-> 2. 计算 `HMAC-SHA256(signing_secret, "v0:" + timestamp + ":" + body)`，并与 `X-Slack-Signature` 做常量时间比较；
-> 3. 签名不匹配或时间戳超过 5 分钟时返回 401，以防重放攻击。
+> 1. 校验飞书事件订阅中的 verification token；
+> 2. 读取卡片 action 中的 `thread_id` 和操作人 ID；
+> 3. 在 3 秒回调窗口内返回 toast，再由后台任务执行 `Command(resume=...)`。
 >
-> 验证通过后调用 `Command(resume="approve")`，工作流从 Interrupt Gate 醒来。Slack 通过 `update_message` 原地更新为：“✅ @sarah 已批准 · 22 秒”。
+> 验证通过后调用 `Command(resume="approve")`，工作流从 Interrupt Gate 醒来。飞书通过 `update_message` 原地更新为：“✅ Sarah 已批准 · 22 秒”。
 
-> **11b. 编辑。**Sarah 点击 Edit。Slack Write Server 使用 `views.open` 弹出 Slack 模态框，不跳转到其他网页。草稿已预填，她修改一句话、补充道歉后保存。`original_draft` 和 `final_draft` 都会写入状态。随后调用 `Command(resume="edit")`，Slack 更新为：“✏️ @sarah 已编辑并批准 · 47 秒”。
+> **11b. 编辑。**Sarah 在飞书卡片的草稿输入框中直接修改一句话、补充道歉，然后点击“Edit”。卡片表单把 `edited_draft` 一并回传，随后调用 `Command(resume="edit")`，飞书更新为：“✏️ Sarah 已编辑并批准 · 47 秒”。
 
-> **11c. 拒绝。**Sarah 点击 Reject，系统弹出小型模态框询问“为什么？（可选）”。她填写“语气太正式，请更友好一些”，内容保存为 `rejection_reason`。Agent 检查 `human_rejection_count`：少于 3 次时，**同一个 LangGraph thread** 重新进入 Draft 节点，不会启动新线程。`thread_id` 和此前所有状态均保留，只增加 `rejection_reason` 并执行 `human_rejection_count++`。Draft 节点把拒绝原因作为附加上下文用于重新生成。新草稿作为原 Slack 消息的线程回复发送，使团队可以直接看到完整审计历史。达到 3 次后，工单进入 **Manual Queue**，频道中显示“🚦 已拒绝 3 次——转人工队列”，系统通过邮件通知客户，之后由 Sarah 的团队全程人工处理。
+> **11c. 拒绝。**Sarah 在飞书卡片填写“语气太正式，请更友好一些”，然后点击“Reject”，内容保存为 `rejection_reason`。Agent 检查 `human_rejection_count`：少于 3 次时，**同一个 LangGraph thread** 重新进入 Draft 节点，不会启动新线程。`thread_id` 和此前所有状态均保留，只增加 `rejection_reason` 并执行 `human_rejection_count++`。Draft 节点把拒绝原因作为附加上下文用于重新生成。新草稿更新到同一张飞书卡片，使团队可以直接看到完整审计历史。达到 3 次后，工单进入 **Manual Queue**，群聊中显示“🚦 已拒绝 3 次——转人工队列”，系统通过邮件通知客户，之后由 Sarah 的团队全程人工处理。
 
 在 Jamie 的示例中，假设 Sarah 点击了**批准**。
 
@@ -147,14 +147,14 @@ SQLite checkpointer 已经在上一个 super-step 边界保存状态。**执行�
 
 > **为什么是 15 分钟？**这是可调的工程决策，不是神奇常数。15 分钟以内，客户状态发生重大变化的概率较低；超过 15 分钟，则更可能出现 CRM 更新，例如订阅变更、新工单或计费事件。阈值通过环境变量 `REVALIDATE_THRESHOLD_MIN` 配置，并可按租户调整。
 
-> **慢路径：**如果 Sarah 外出吃饭，两小时后才批准，Agent 会再次调用 MCP Read Server，重新计算并比较 hash。如果 Jamie 的账户状态在此期间发生变化，例如升级为 Enterprise，**Summarize Changes** 节点会生成差异，并通过同一 Slack 线程上的 `update_message` 提示：“⚠️ 上下文已变化，请重新确认。”工作流再次 interrupt，等待 Sarah 基于新信息重新决定。只有上下文未变化时才继续执行。
+> **慢路径：**如果 Sarah 外出吃饭，两小时后才批准，Agent 会再次调用 MCP Read Server，重新计算并比较 hash。如果 Jamie 的账户状态在此期间发生变化，例如升级为 Enterprise，**Summarize Changes** 节点会生成差异，并通过同一张飞书卡片的 `update_message` 提示：“⚠️ 上下文已变化，请重新确认。”工作流再次 interrupt，等待 Sarah 基于新信息重新决定。只有上下文未变化时才继续执行。
 
 ## 第 13 步——Finalize Action
 
 这是纯组装步骤，还没有不可逆副作用：
 
 - 恢复 PII：将 `[EMAIL_1]` 替换为真实邮箱；
-- 组装邮件负载，并包含**三个线程关联字段**。Gmail 会同时使用它们，缺少任何一个都可能偶发破坏邮件线程：
+- 组装邮件负载，并包含**三个线程关联字段**。腾讯/网易企业邮箱会按这些字段维持回复线程：
   - `In-Reply-To: <original Message-ID>`
   - `References: <original Message-ID>`，并拼接此前的线程 ID
   - `Subject: Re: Refund please`，主题必须以 `Re: ` 开头才能匹配
@@ -176,26 +176,26 @@ Agent 调用 **MCP Email Write Server** 的 `send_email`。
 
 状态变化为：`send_status: pending → in_flight → sent`。
 
-## 第 15 步——最后一次更新 Slack 消息
+## 第 15 步——最后一次更新飞书卡片
 
-Agent 调用 Slack Write Server 的 `update_message`，`#support-refunds` 中的原消息变为：
+Agent 调用 Approval Write Server 的 `update_message`，飞书测试群聊中的原卡片变为：
 
 ```text
 ✅ ticket-4421 · @sarah 已批准 · 22 秒
 📤 已于 14:05:30 回复 jamie@example.com
 ```
 
-团队在日常工作的 Slack 中就能看到完整审计信息。
+团队在日常工作的飞书测试企业中就能看到完整审计信息。
 
 ## 第 16 步——结束审计日志和 LangSmith trace
 
-系统向审计日志追加一行：工单 ID、意图、置信度、原草稿、最终草稿、批准人（`@sarah`）、Slack 频道及消息链接、决策耗时（22 秒）、成本（$0.0034）、token 数（892）和 trace URL。
+系统向审计日志追加一行：工单 ID、意图、置信度、原草稿、最终草稿、批准人（`sarah`）、审批群聊及消息 ID、决策耗时（22 秒）、成本（$0.0034）、token 数（892）和 trace URL。
 
-LangSmith trace 结束时带有这些标签：`outcome=escalated, human_edited=false, slack_channel=#support-refunds, final_state=sent, intent=refund, risk_flags=refund, confidence_bucket=gte_0.85`。
+LangSmith trace 结束时带有这些标签：`outcome=escalated, human_edited=false, approval_channel=oc_..., final_state=sent, intent=refund, risk_flags=refund, confidence_bucket=gte_0.85`。
 
 ## 第 17 步——Jamie 收到回复
 
-Jamie 的手机发出通知。Gmail 中出现一封新邮件，并且**归在她原来的“Refund please”邮件线程下**：
+Jamie 的手机发出通知。企业邮箱中出现一封新邮件，并且**归在她原来的“Refund please”邮件线程下**：
 
 > *发件人：support@yourcompany.com*  
 > *主题：Re: Refund please*  
@@ -219,11 +219,11 @@ Jamie 的手机发出通知。Gmail 中出现一封新邮件，并且**归在她
 
 即使它同时也是退款请求，仍然由 *angry 优先*。在当前三个频道的实现中，带有强烈情绪的升级请求进入 `#support-complaints`，由经验更丰富的客服先缓和情绪，再处理具体问题。
 
-Slack 消息会进入 `#support-complaints`，仍然展示风险标记、情绪、客户历史、草稿和策略引用，但该频道由高级支持人员关注。他们能立刻看到律师相关表述，并选择批准谨慎的回复，或拒绝草稿，让 Agent 以更平和的语气重新生成；修订时 Critic 会倾向保守。
+飞书投诉群聊会收到审批卡片，仍然展示风险标记、情绪、客户历史、草稿和策略引用，但该群聊由高级支持人员关注。他们能立刻看到律师相关表述，并选择批准谨慎的回复，或拒绝草稿，让 Agent 以更平和的语气重新生成；修订时 Critic 会倾向保守。
 
 Jamie 最终仍然通过真实邮件收到归入原线程的回复。内部路由对她不可见，但这恰恰是作品集 Demo 与真实产品之间的区别。
 
-> 规格中的四级路由会因为“律师”一词把请求送到 `#support-legal`。该路由目前延后实现，详见 `src/slack_router.py` 的 docstring。恢复它只需增加常量，并在 angry 判断前增加优先级检查，不需要修改图结构。
+> 规格中的四级路由会因为“律师”一词把请求送到单独的法律审批群聊。该路由目前延后实现，详见 `src/slack_router.py` 的 docstring。恢复它只需增加配置，并在 angry 判断前增加优先级检查，不需要修改图结构。
 
 ---
 
@@ -231,15 +231,15 @@ Jamie 最终仍然通过真实邮件收到归入原线程的回复。内部路�
 
 | 故障 | 系统行为 |
 |---|---|
-| 服务器在暂停期间崩溃 | LangGraph SQLite checkpoint 保存在最近一个 super-step。重启后 Slack 按钮仍可使用；webhook 通过 `slack_message_ts` 在 Interrupt Gate 恢复，状态被完整还原。 |
-| SMTP 短暂失败 | `send_retry_count++`，使用相同 `send_idempotency_key` 最多重试三次，并通过状态中的 `sent_message_id` 做应用层检查。三次后进入 `failed_manual` → Manual Queue，并通知 Slack。 |
+| 服务器在暂停期间崩溃 | LangGraph SQLite checkpoint 保存在最近一个 super-step。重启后飞书卡片按钮仍可使用；回调通过 `slack_message_ts` 在 Interrupt Gate 恢复，状态被完整还原。 |
+| SMTP 短暂失败 | `send_retry_count++`，使用相同 `send_idempotency_key` 最多重试三次，并通过状态中的 `sent_message_id` 做应用层检查。三次后进入 `failed_manual` → Manual Queue，并更新飞书卡片。 |
 | 一小时内无人响应 | Agent 再次提醒频道：“⏰ 仍在等待——已通知备用频道。”到 `sla_deadline`（24 小时）仍无响应时，自动转入 Manual Queue。 |
-| 客户在暂停期间追发邮件 | `ticket_external_status` 变为 `superseded`，旧草稿被丢弃。Slack 更新：“⚠️ 客户已回复——当前工单被替代，请查看 ticket-XXXX。”追发内容作为新工单进入。 |
-| 客户从外部取消 | `ticket_external_status` 变为 `cancelled`。Slack 显示：“🚫 客户已取消——关闭工单。”不发送邮件。 |
-| 客户邮件包含 Prompt Injection | Read MCP Server 没有 `send_email` 和 `post_slack`。即使检索阶段受到越狱攻击，在显式执行 Send 或 Slack Write 节点之前，Agent 也没有访问任何 I/O 频道的路径。能力隔离限制了故障影响范围。 |
-| Slack webhook 签名不匹配 | FastAPI 返回 401，不恢复工作流，并记录为安全事件。 |
-| Slack 时间戳超过五分钟 | 作为重放攻击防护，返回 401。 |
-| 人工连续拒绝三次 | 自动进入 Manual Queue。Slack 显示：“🚦 已拒绝 3 次——转人工队列。”并通过邮件通知客户。 |
+| 客户在暂停期间追发邮件 | `ticket_external_status` 变为 `superseded`，旧草稿被丢弃。飞书更新：“⚠️ 客户已回复——当前工单被替代，请查看 ticket-XXXX。”追发内容作为新工单进入。 |
+| 客户从外部取消 | `ticket_external_status` 变为 `cancelled`。飞书显示：“🚫 客户已取消——关闭工单。”不发送邮件。 |
+| 客户邮件包含 Prompt Injection | Read MCP Server 没有 `send_email` 和 `post_approval_request`。即使检索阶段受到越狱攻击，在显式执行 Send 或 Approval Write 节点之前，Agent 也没有访问任何 I/O 频道的路径。能力隔离限制了故障影响范围。 |
+| 飞书回调令牌不匹配 | FastAPI 返回 401，不恢复工作流，并记录为安全事件。 |
+| 飞书回调未及时确认 | 处理器先快速返回 toast，再异步恢复图；长时间的 LLM、SMTP 或重验证不会阻塞回调。 |
+| 人工连续拒绝三次 | 自动进入 Manual Queue。飞书显示：“🚦 已拒绝 3 次——转人工队列。”并通过邮件通知客户。 |
 | LangSmith 不可用 | Agent 继续运行；trace 在本地缓冲，LangSmith 恢复后重放。可观测性故障不影响用户流程。 |
 | LLM 被限流 | 退避后重试一次；第二次仍失败则按低置信度处理，升级给人工。 |
 | Hash 未变化，但人工延迟超过 24 小时 | SLA 仍然过期，进入 Manual Queue。时间规则优先于陈旧性检查。 |
@@ -250,10 +250,10 @@ Jamie 最终仍然通过真实邮件收到归入原线程的回复。内部路�
 
 | 层 | 真实 | 模拟 |
 |---|---|---|
-| **I/O 渠道** | Gmail IMAP IDLE（收件）+ SMTP（发件），真实 Slack 多频道路由 | — |
+| **I/O 渠道** | 腾讯/网易企业邮箱 IMAP IDLE（收件）+ SMTP（发件），真实飞书测试企业交互卡片 | — |
 | **LLM / 可观测性** | OpenRouter（DeepSeek）、LangSmith tracing | — |
 | **编排** | LangGraph + SQLite checkpointer | — |
-| **工具** | 三个按能力拆分的 MCP Server：Read / Email Write / Slack Write | — |
+| **工具** | 三个按能力拆分的 MCP Server：Read / Email Write / Approval Write | — |
 | **评测数据** | 10 张人工整理的工单，每条代码路径一张（`eval/dataset.py`）；外部 Bitext 基准评测在原文此处标为推迟到 v4.1 | — |
 | **客户数据库** | — | `data/customers_seed.json`，结构仿 Salesforce |
 | **CRM 档案** | — | 模拟的 `get_crm_profile` 返回结构化数据 |
@@ -280,7 +280,7 @@ Jamie 最终仍然通过真实邮件收到归入原线程的回复。内部路�
 
 ## 用一句话概括整个系统
 
-Jamie 发送邮件 → IMAP 收到邮件 → Agent 分类并生成草稿 → 简单 FAQ 自动发送，其他请求则**按优先级进入正确的 Slack 频道 → 持久化暂停 → 人工点击批准、编辑或拒绝 → 恢复执行** → SMTP 发送归入原线程的回复 → Jamie 的手机收到通知。客户不会看到 Agent 或 Slack。
+Jamie 发送邮件 → IMAP 收到邮件 → Agent 分类并生成草稿 → 简单 FAQ 自动发送，其他请求则**按优先级进入正确的飞书群聊 → 持久化暂停 → 人工点击批准、编辑或拒绝 → 恢复执行** → SMTP 发送归入原线程的回复 → Jamie 的手机收到通知。客户不会看到 Agent 或飞书。
 
 ---
 
@@ -291,7 +291,7 @@ Jamie 发送邮件 → IMAP 收到邮件 → Agent 分类并生成草稿 → 简
 ### 完全不变的部分
 
 - 第 1～4 步：接入、PII 脱敏、意图分类，完全相同；
-- 第 7～17 步：门控、频道路由、Slack 通知、interrupt、resume、finalize、send、audit，完全相同；
+- 第 7～17 步：门控、目的地路由、飞书通知、interrupt、resume、finalize、send、audit，完全相同；
 - 硬性不变量：确定性 PII 处理、`false_auto_send_rate=0%`、`interrupt_gate` 隔离、幂等发送、只追加审计日志、MCP 能力隔离。
 
 ### 第 5 步变为 Researcher Agent
@@ -316,7 +316,7 @@ Jamie 的退款工单进入原来的 `enrich_context_node` 位置。在 v4 中�
 
 ### v4 没有改变什么
 
-Jamie 的体验与 v3 完全相同。她的手机仍然收到真实邮件回复，回复仍归在原来的“Refund please”线程下，看起来仍像真正客服团队发出的邮件。内部在 Slack 之前的生成过程从两个确定性节点变成了三 Agent 管线（Researcher → Drafter ↔ Critic），但 Slack 通知、人工审批、邮件线程头、幂等发送和审计日志均保持不变。
+Jamie 的体验与 v3 完全相同。她的手机仍然收到真实邮件回复，回复仍归在原来的“Refund please”线程下，看起来仍像真正客服团队发出的邮件。内部在飞书之前的生成过程从两个确定性节点变成了三 Agent 管线（Researcher → Drafter ↔ Critic），但飞书通知、人工审批、邮件线程头、幂等发送和审计日志均保持不变。
 
 ### 相关链接
 

@@ -17,7 +17,7 @@ Two non-negotiable rules from CLAUDE.md and spec §6.5:
 Cross-track imports (will resolve when Tracks B and C land):
   - src.mcp_client          ← Track B
   - src.policy              ← Track C
-  - src.slack_router        ← Track C
+  - src.slack_router        ← Track C (legacy module name; routes approval destinations)
   - src.pii                 ← Track C
 """
 
@@ -109,16 +109,17 @@ def _client() -> Any:
 
 
 def _build_approval_blocks(state: AgentState, kb_quote: str) -> list[dict[str, Any]]:
-    """Build the Block Kit message body for the Slack approval post.
+    """Build the stable approval payload consumed by the Feishu adapter.
 
-    Spec source: spec.md §6 Slack Notification + §7 HITL Design.
-    构造 Slack BlockKit 消息。人工审批弹窗，包含工单信息、风险标记、知识库依据、AI 草稿回复、三个按钮：`Approve/Edit/Reject`。
+    Spec source: spec.md §6 approval notification + §7 HITL Design.
+    先构造稳定的审批字段，再由 Feishu 适配器转换成消息卡片；Slack
+    fallback 仍可直接消费原 Block Kit 形状。
     The message contains:
       - Ticket header (id + intent + customer email)
       - "Why I paused" panel — risk flags + confidence + policy match
       - KB justification quote (verbatim ACME policy sentence)
       - Draft reply (expandable)
-      - Approve / Edit / Reject buttons (action_id matches slack_handler.py)
+      - Approve / Edit / Reject buttons (action ids match the callback adapter)
     """
     ticket_id = state.get("ticket_id", "")
     intent = state.get("intent", "")
@@ -423,7 +424,7 @@ def route_after_confidence_check(state: AgentState) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 6. Channel Router (writes slack_channel; the router function itself is
+# 6. Channel Router (writes the compatibility field slack_channel; the router function itself is
 #    pure — Track C ships it)
 # ---------------------------------------------------------------------------
 
@@ -438,15 +439,15 @@ def channel_router_node(state: AgentState) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 7. Slack Notification — posts Block Kit BEFORE interrupt. Saves message_ts.
+# 7. Approval Notification — posts the card BEFORE interrupt. Saves message id.
 # ---------------------------------------------------------------------------
 
 
 @timed_node("slack_notification")
 async def slack_notification_node(state: AgentState) -> dict[str, Any]:
-    """Posts the Block Kit approval message BEFORE the interrupt. Saves
-    `slack_message_ts` so resume targets the same message even after a
-    server restart."""
+    """Posts the approval message BEFORE the interrupt. Saves the opaque
+    message pointer in the legacy `slack_message_ts` state field so resume
+    targets the same message even after a server restart."""
     client = _client()
     sla_deadline = datetime.now(UTC) + timedelta(
         hours=int(os.environ.get("SLA_DEADLINE_HOURS", "24"))
@@ -464,11 +465,8 @@ async def slack_notification_node(state: AgentState) -> dict[str, Any]:
     )
     return {
         "slack_message_ts": result.slack_message_ts,
-        # Replace the human-readable channel name (e.g. "#support-refunds")
-        # with the canonical channel ID (e.g. "C0B2U0W84MP") that Slack's
-        # `chat.update` API requires. Without this, every subsequent
-        # update_message call fails with `channel_not_found` and the
-        # approval message never visually changes after Approve/Edit/Reject.
+        # Store the canonical destination returned by the provider. For Feishu
+        # this is the receive ID; for the Slack fallback it is the channel ID.
         "slack_channel": result.channel,
         "approval_status": "pending",
         "sla_deadline": sla_deadline,
@@ -480,7 +478,7 @@ async def slack_notification_node(state: AgentState) -> dict[str, Any]:
                 channel=result.channel,
                 # NOTE: kwarg renamed from `ts` to `slack_ts` — `_audit` builds
                 # `{"ts": _now_iso(), **fields}` so passing `ts=` overwrites the
-                # ISO 8601 wall-clock with the Slack unix-epoch string. That
+                # ISO 8601 wall-clock with a provider message id. That
                 # silently broke `route_after_action`'s elapsed-time check
                 # (datetime.fromisoformat raised ValueError, swallowed by a
                 # bare except, always routed to "finalize"). Audit finding H1.
@@ -828,7 +826,7 @@ async def audit_log_node(state: AgentState) -> dict[str, Any]:
                 )
             )
         except (RuntimeError, OSError, ValueError) as exc:
-            # Best-effort: a Slack outage / network blip / serialization error
+            # Best-effort: an approval-provider outage / network blip / serialization error
             # must NOT block the audit close — the ticket is already sent.
             # Log so it's visible in LangSmith, but swallow.
             log.warning("audit_log Slack update failed (non-fatal): %s", exc) #尽最大努力（Best-Effort）" 模式

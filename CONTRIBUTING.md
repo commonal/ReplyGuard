@@ -16,7 +16,7 @@ source .venv/bin/activate          # Linux/macOS
 pip install -e .[dev]              # runtime + test/lint/security tooling
 cp .env.example .env               # fill in real keys before running the server
 
-pytest -q                          # 148 tests should pass
+pytest -q                          # 157 tests should pass
 ruff check .
 mypy
 bandit -r src mcp_server -ll
@@ -48,7 +48,7 @@ open http://127.0.0.1:8000/metrics # raw Prometheus exposition
 ```
 
 Send a test email to your configured `GMAIL_USER` from another address; the
-agent classifies, drafts, gates, and either auto-sends or escalates to Slack.
+agent classifies, drafts, gates, and either auto-sends or escalates to Feishu.
 
 ## Commit style
 
@@ -74,7 +74,7 @@ the what). For non-trivial changes, include test evidence in the body.
 - [ ] Any new doc claim has a corresponding code / test / eval artifact —
       see the "honest claims" rule below
 - [ ] If you touched the graph, you ran a manual end-to-end smoke against
-      real Gmail + real Slack and reported the outcome in the PR body
+      real Tencent/NetEase enterprise mail + Feishu test enterprise and reported the outcome in the PR body
 
 ## The honesty rule
 

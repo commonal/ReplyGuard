@@ -1,34 +1,34 @@
 # How It Works — End-to-end product walkthrough
 
-> A production-style customer support system that combines LLM reasoning, deterministic policy enforcement, and human approval workflows with durable execution. Real email I/O, real multi-channel Slack approvals, fictional ACME SaaS Co policy corpus, three capability-isolated MCP servers.
+> A production-style customer support system that combines LLM reasoning, deterministic policy enforcement, and human approval workflows with durable execution. Real Tencent/NetEase enterprise-mail I/O, real Feishu approval cards, fictional ACME SaaS Co policy corpus, three capability-isolated MCP servers.
 
 This is the canonical narrative — open this in interviews, paste sections into the README, walk through it on a demo call. `spec.md` is the build spec, `docs/architecture.md` has the diagrams + state schema + LangSmith tag table, this doc tells the story.
 
-The runtime decomposes into seven layers (see `docs/architecture.md` for the table): **Ingestion** (IMAP/SMTP), **Orchestration** (LangGraph + SQLite checkpointer), **Intelligence** (LLM via OpenRouter), **Policy** (two-gate routing + ACME KB retrieval), **HITL** (Slack notification + interrupt + action handler), **Execution** (Finalize + Send + Audit), **Observability** (LangSmith trace + cost tracking). Every step below maps to one of these layers; the layer names are the folder structure too.
+The runtime decomposes into seven layers (see `docs/architecture.md` for the table): **Ingestion** (IMAP/SMTP), **Orchestration** (LangGraph + SQLite checkpointer), **Intelligence** (LLM via OpenRouter), **Policy** (two-gate routing + ACME KB retrieval), **HITL** (Feishu notification + interrupt + action handler), **Execution** (Finalize + Send + Audit), **Observability** (LangSmith trace + cost tracking). Every step below maps to one of these layers; the layer names are the folder structure too.
 
 ---
 
 ## Setup (one-time, before any tickets)
 
-You have a Gmail account `support@yourcompany.com` with IMAP enabled and an App Password. You have a Slack workspace with **three channels** for this build: `#support-refunds`, `#support-technical`, `#support-complaints`. Your team is in those channels. The agent is running.
+You have a Tencent or NetEase enterprise mailbox `support@yourcompany.com` with IMAP enabled and a client authorization code. You have a Feishu test enterprise with a self-built app installed in one test chat (or three configured chats for per-intent routing). The agent is running.
 
-(The spec describes six channels including `#support-billing`, `#support-enterprise`, `#support-legal` with a 4-priority router. That scope was cut to 3 channels for the 6-10h build — see the "Cut from spec" section at the bottom and `src/slack_router.py` docstring. Adding the deferred channels is a config-only change once you decide to.)
+(The spec describes six approval destinations including billing, enterprise, and legal with a 4-priority router. That scope was cut to 3 configurable destinations for the 6-10h build — see the "Cut from spec" section at the bottom and `src/slack_router.py` docstring. Adding the deferred destinations is a config-only change once you decide to.)
 
 ---
 
 ## Step 1 — Customer hits Send on their email
 
-The customer (let's call her Jamie) opens Gmail on her phone, writes:
+The customer (let's call her Jamie) opens her email client on her phone, writes:
 
 > *To: support@yourcompany.com*
 > *Subject: Refund please*
 > *I want a $200 refund — your shirt didn't fit.*
 
-She clicks Send. Email travels through Gmail's servers, lands in your `support@yourcompany.com` inbox. **Jamie now waits.** From her side, nothing else is visible — she just sees her phone go back to the inbox.
+She clicks Send. Email travels through the enterprise-mail provider, lands in your `support@yourcompany.com` inbox. **Jamie now waits.** From her side, nothing else is visible — she just sees her phone go back to the inbox.
 
 ## Step 2 — Email Listener picks it up (within ~1 second on IDLE, or ~30s on poll fallback)
 
-Your background listener (`src/email_listener.py`) is connected to `support@yourcompany.com` via **IMAP IDLE** — Gmail pushes a notification within a second of the new mail arriving. (If IDLE drops or is unavailable, the listener falls back to a 30-second poll. Production at scale would use webhook-based inbound — SES / SendGrid Parse / Postmark — for sub-second latency without the IDLE keepalive overhead.)
+Your background listener (`src/email_listener.py`) is connected to `support@yourcompany.com` via **IMAP IDLE** — the configured provider pushes a notification when new mail arrives. (If IDLE drops or is unavailable, the listener falls back to a 30-second poll. Production at scale would use webhook-based inbound — SES / SendGrid Parse / Postmark — for sub-second latency without the IDLE keepalive overhead.)
 
 The listener parses out:
 - `from`: jamie@example.com
@@ -71,19 +71,19 @@ Deterministic rules check the retrieved policies + risk_flags. ACME Policy 4.2.1
 
 > *(If this had been a simple FAQ instead — like "How do I reset my password?" — Gate 1 would pass, Gate 2 would also pass, and the flow would jump straight to Step 13 without any human involvement. **That's the auto-send path: ~3 seconds, zero humans.** What follows below is the human-approval path.)*
 
-## Step 8 — Channel Router picks the right Slack channel
+## Step 8 — Approval Router picks the right Feishu chat
 
 The shipped router has two priorities (first match wins):
-1. **Angry sentiment?** No (sentiment was neutral) — would have gone to `#support-complaints` if yes.
-2. **By intent?** **Yes** → `intent=refund` → **`#support-refunds`**.
+1. **Angry sentiment?** No (sentiment was neutral) — would have gone to the configured complaints chat if yes.
+2. **By intent?** **Yes** → `intent=refund` → the configured refunds chat.
 
-`slack_channel="#support-refunds"` saved to state.
+The selected Feishu receive ID is saved to the compatibility state field `slack_channel`.
 
-> *(The spec's full 4-priority chain — `legal/compliance > Enterprise+risk > angry > intent` — is deferred per `src/slack_router.py` docstring. In this build, anything that isn't `refund` or `angry` lands in `#support-technical` as the catch-all.)*
+> *(The spec's full 4-priority chain — `legal/compliance > Enterprise+risk > angry > intent` — is deferred per `src/slack_router.py` docstring. In this build, anything that isn't `refund` or `angry` lands in the configured technical chat as the catch-all.)*
 
-## Step 9 — Slack Notification posts (BEFORE interrupt — order matters)
+## Step 9 — Feishu Notification posts (BEFORE interrupt — order matters)
 
-Agent calls the **MCP Slack Write Server's** `post_approval_request`. A Block Kit message lands in `#support-refunds`:
+Agent calls the **MCP Approval Write Server's** `post_approval_request`. A Feishu interactive card lands in the configured test chat:
 
 ```
 🟡 ticket-4421 · Refund $200
@@ -102,11 +102,11 @@ Justification (from KB):
 [ Approve ]   [ Edit ]   [ Reject ]
 ```
 
-Slack returns the message timestamp; we save `slack_message_ts` to state. **The Slack post is its own node — no `interrupt()` here.**
+Feishu returns an opaque message ID (normally `om_...`); we save it in the compatibility field `slack_message_ts`. **The Feishu post is its own node — no `interrupt()` here.**
 
 ## Step 10 — Interrupt Gate (dedicated node, only the pause)
 
-In a separate node, the graph calls `interrupt()`. Nothing else in this node — per **Implementation Rule 1**, side effects (the Slack post) live in a *different* node so resumes don't duplicate them.
+In a separate node, the graph calls `interrupt()`. Nothing else in this node — per **Implementation Rule 1**, side effects (the Feishu post) live in a *different* node so resumes don't duplicate them.
 
 > **Two LangGraph rules this code follows (not optional, both silent-failure if violated):**
 >
@@ -114,26 +114,23 @@ In a separate node, the graph calls `interrupt()`. Nothing else in this node —
 >
 > **Rule 2 —** Never wrap `interrupt()` in `try/except`. `interrupt()` works by raising a special exception that the LangGraph runtime catches. A broad `try/except` swallows that exception; the graph either hangs or skips the pause entirely. Error handling lives in *other* nodes, not the interrupt node.
 
-The SQLite checkpointer has already persisted state at the last super-step boundary. **Execution literally pauses.** If your server crashes right now, restart and Jamie's ticket survives — same state, same draft, same Slack message buttons still working (the webhook resume targets `slack_message_ts`).
+The SQLite checkpointer has already persisted state at the last super-step boundary. **Execution literally pauses.** If your server crashes right now, restart and Jamie's ticket survives — same state, same draft, same Feishu card buttons still working (the callback resume targets `slack_message_ts`).
 
-> **Why this ordering matters.** Once `interrupt()` fires, execution pauses — nothing else in that node runs. If you put Channel Router and Slack Notification *after* interrupt, they never execute. The graph pauses forever with no Slack message ever posted. Slack post → Interrupt Gate → resume. Always that order.
+> **Why this ordering matters.** Once `interrupt()` fires, execution pauses — nothing else in that node runs. If you put the Approval Router and Feishu Notification *after* interrupt, they never execute. The graph pauses forever with no Feishu card ever posted. Feishu post → Interrupt Gate → resume. Always that order.
 
 **Jamie is still waiting on her phone. She has no idea what's happening.**
 
-## Step 11 — Sarah sees Slack and clicks a button
+## Step 11 — Sarah sees Feishu and clicks a button
 
-Sarah is on duty. She glances at the message in `#support-refunds`. The "Why I paused" panel + verbatim ACME quote let her decide in ~10 seconds. Three sub-paths:
+Sarah is on duty. She glances at the card in the configured refunds chat. The "Why I paused" panel + verbatim ACME quote let her decide in ~10 seconds. Three sub-paths:
 
-> **11a. Approve.** Sarah clicks Approve. Slack fires a webhook to your FastAPI server (`src/slack_handler.py`). The handler:
-> 1. Reads `X-Slack-Request-Timestamp` and the raw body
-> 2. Computes `HMAC-SHA256(signing_secret, "v0:" + timestamp + ":" + body)` and compares to `X-Slack-Signature` (constant-time compare)
-> 3. Rejects with 401 if mismatch OR if timestamp is older than 5 minutes (replay defense)
+> **11a. Approve.** Sarah clicks Approve. Feishu fires a callback to your FastAPI server (`src/feishu_handler.py`). The handler compares the callback's application verification token, extracts the operator and thread ID, schedules the durable graph resume, and returns a quick acknowledgement.
 >
-> Verified → calls `Command(resume="approve")`. The graph wakes up at the Interrupt Gate. Slack message updates in place via `update_message`: *"✅ Approved by @sarah · 22 sec."*
+> Verified → calls `Command(resume="approve")`. The graph wakes up at the Interrupt Gate. The Feishu card updates in place via `update_message`: *"✅ Approved by @sarah · 22 sec."*
 
-> **11b. Edit.** Sarah clicks Edit. The Slack Write Server uses `views.open` to pop a Slack modal (no redirect to a separate web page — Sarah stays in Slack). The modal is prefilled with the draft. She rewrites a sentence — adds an apology — and saves. Both `original_draft` AND `final_draft` go into state. `Command(resume="edit")`. Slack updates: *"✏️ Edited & approved by @sarah · 47 sec."*
+> **11b. Edit.** Sarah clicks Edit. The Feishu card form is prefilled with the draft (no redirect to a separate web page — Sarah stays in Feishu). She rewrites a sentence — adds an apology — and submits. Both `original_draft` AND `final_draft` go into state. `Command(resume="edit")`. The card updates: *"✏️ Edited & approved by @sarah · 47 sec."*
 
-> **11c. Reject.** Sarah clicks Reject. A small modal pops: *"Why? (optional)"*. She types: "Tone too formal — make it friendlier." This becomes `rejection_reason` in state. Agent checks `human_rejection_count`. Below 3 → the *same LangGraph thread* re-enters the Draft node (it doesn't start a new thread — `thread_id` and all prior state stay intact, just `rejection_reason` and `human_rejection_count++` are added). The Draft node reads `rejection_reason` and incorporates it into the redraft prompt as additional context. The new draft posts as a Slack thread reply on the same original message — preserves the team's audit history visible at a glance. At 3 → ticket goes to **Manual Queue**, posts *"🚦 3 rejections — manual queue"* in the channel, customer notified by email, Sarah's team owns it end-to-end from there.
+> **11c. Reject.** Sarah clicks Reject. The card form includes an optional reason field. She types: "Tone too formal — make it friendlier." This becomes `rejection_reason` in state. Agent checks `human_rejection_count`. Below 3 → the *same LangGraph thread* re-enters the Draft node (it doesn't start a new thread — `thread_id` and all prior state stay intact, just `rejection_reason` and `human_rejection_count++` are added). The Draft node reads `rejection_reason` and incorporates it into the redraft prompt as additional context. The updated card preserves the team's audit history visible at a glance. At 3 → ticket goes to **Manual Queue**, posts *"🚦 3 rejections — manual queue"* in the Feishu chat, customer notified by email, Sarah's team owns it end-to-end from there.
 
 For Jamie's ticket, assume Sarah clicks **Approve**.
 
@@ -143,13 +140,13 @@ Did this take longer than 15 minutes? Sarah was fast — 22 seconds — so **no*
 
 > **Why 15 minutes specifically?** Tunable engineering decision, not magic. Sub-15min: customer state rarely changes meaningfully. Over 15min: meaningful chance of CRM updates (subscription change, new ticket, billing event). Config-driven via `REVALIDATE_THRESHOLD_MIN` env var, tunable per tenant.
 
-> **The slow path** (Sarah was at lunch, approves 2h later): the agent re-calls the MCP Read Server, recomputes the hash, and compares. If Jamie's account status changed in the meantime — say she got upgraded to Enterprise — the **Summarize Changes** node generates a delta and posts an `update_message` on the same Slack thread: *"⚠️ Context changed — please re-confirm."* Graph re-interrupts to wait for Sarah's re-decision with the new info. Only when nothing changed does the agent proceed.
+> **The slow path** (Sarah was at lunch, approves 2h later): the agent re-calls the MCP Read Server, recomputes the hash, and compares. If Jamie's account status changed in the meantime — say she got upgraded to Enterprise — the **Summarize Changes** node generates a delta and posts an `update_message` on the same Feishu card: *"⚠️ Context changed — please re-confirm."* Graph re-interrupts to wait for Sarah's re-decision with the new info. Only when nothing changed does the agent proceed.
 
 ## Step 13 — Finalize Action
 
 Pure compose step, no irreversible effects yet:
 - PII tokens restored: `[EMAIL_1]` becomes the actual email
-- Email payload assembled with **all three threading headers** (Gmail uses all of them; missing any one breaks threading intermittently):
+- Email payload assembled with **all three threading headers** (enterprise-mail providers use them for normal reply threading):
   - `In-Reply-To: <original Message-ID>`
   - `References: <original Message-ID>` (and any prior thread IDs concatenated)
   - `Subject: Re: Refund please` (must start with `Re: ` to match)
@@ -170,9 +167,9 @@ If something fails transiently (network blip), `send_retry_count` increments and
 
 `send_status: pending → in_flight → sent`.
 
-## Step 15 — Slack message updates one last time
+## Step 15 — Feishu card updates one last time
 
-Agent calls `update_message` on the Slack Write Server. The original message in `#support-refunds` now reads:
+Agent calls `update_message` on the Approval Write Server. The original card in the configured test chat now reads:
 
 ```
 ✅ ticket-4421 · Approved by @sarah · 22 sec
@@ -183,11 +180,11 @@ The team has full audit visibility right where they work.
 
 ## Step 16 — Audit log + LangSmith trace closes
 
-A row gets appended to the audit log: ticket id, intent, confidence, original draft, final draft, who approved (`@sarah`), Slack channel + message link, time-to-decision (22s), cost ($0.0034), tokens (892), trace URL. LangSmith trace closes with tags: `outcome=escalated, human_edited=false, slack_channel=#support-refunds, final_state=sent, intent=refund, risk_flags=refund, confidence_bucket=gte_0.85`.
+A row gets appended to the audit log: ticket id, intent, confidence, original draft, final draft, who approved (`@sarah`), Feishu chat + message ID, time-to-decision (22s), cost ($0.0034), tokens (892), trace URL. LangSmith trace closes with tags: `outcome=escalated, human_edited=false, approval_channel=feishu, final_state=sent, intent=refund, risk_flags=refund, confidence_bucket=gte_0.85`.
 
 ## Step 17 — Jamie reads the reply
 
-Jamie's phone buzzes. New email in her Gmail, **threaded under her original "Refund please" message**:
+Jamie's phone buzzes. New email in her mailbox, **threaded under her original "Refund please" message**:
 
 > *From: support@yourcompany.com*
 > *Subject: Re: Refund please*
@@ -205,12 +202,12 @@ Imagine instead Jamie wrote: *"This is the third time. I'm furious. I want my mo
 
 Steps 1–7 same shape. The classifier returns `sentiment=angry (0.94), risk_flags=["refund","angry","money_mention"], risk_level=financial`.
 
-**Channel Router** runs through priorities:
-1. **Angry sentiment? YES.** Channel = **`#support-complaints`**.
+**Approval Router** runs through priorities:
+1. **Angry sentiment? YES.** Destination = the configured complaints chat.
 
-(Even though it's a refund — *angry wins*. The angry-sentiment override is the priority order doing real work. In the shipped 3-channel build, `#support-complaints` is where escalations with hot emotional content land so your most experienced responders can de-escalate before substance.)
+(Even though it's a refund — *angry wins*. The angry-sentiment override is the priority order doing real work. In the shipped 3-destination build, the complaints chat is where escalations with hot emotional content land so your most experienced responders can de-escalate before substance.)
 
-The Slack post lands in `#support-complaints` with all the same panels — risk_flags, sentiment, customer history, the draft, the policy quote — but in a channel watched by senior support staff. They see the lawyer mention upfront, handle it appropriately, and either approve a careful response or reject it back to the agent for a calmer redraft (the Critic on revision will lean conservative).
+The Feishu card lands in the configured complaints chat with all the same panels — risk_flags, sentiment, customer history, the draft, the policy quote — but in a chat watched by senior support staff. They see the lawyer mention upfront, handle it appropriately, and either approve a careful response or reject it back to the agent for a calmer redraft (the Critic on revision will lean conservative).
 
 Jamie still gets a reply via real email, threaded under her original. She's still treated like she emailed a competent company. The internal routing is invisible to her — but it's the difference between a portfolio project and a real product.
 
@@ -222,15 +219,15 @@ Jamie still gets a reply via real email, threaded under her original. She's stil
 
 | Failure | Behavior |
 |---|---|
-| Server crashes mid-pause | LangGraph SQLite checkpoint persists at the last super-step. On restart, the Slack message buttons still work — webhook resumes at the Interrupt Gate using `slack_message_ts`. State recovered exactly. |
-| SMTP transient failure | `send_retry_count++`. Up to 3 retries, all using the same `send_idempotency_key` (app-layer check on `sent_message_id` in state). After 3 → `failed_manual` → Manual Queue + Slack notice. |
+| Server crashes mid-pause | LangGraph SQLite checkpoint persists at the last super-step. On restart, the Feishu card buttons still work — callback resumes at the Interrupt Gate using `slack_message_ts`. State recovered exactly. |
+| SMTP transient failure | `send_retry_count++`. Up to 3 retries, all using the same `send_idempotency_key` (app-layer check on `sent_message_id` in state). After 3 → `failed_manual` → Manual Queue + Feishu notice. |
 | No human responds in 1h | Agent re-pings the channel: *"⏰ Still pending — backup channel paged."* If still no response by `sla_deadline` (24h) → auto-escalate to Manual Queue. |
-| Customer follows up mid-pause | `ticket_external_status` flips to `superseded`. Old draft discarded. Slack message updates: *"⚠️ Customer replied — superseded, see ticket-XXXX."* Follow-up enters as new ticket. |
-| Customer cancels externally | `ticket_external_status` flips to `cancelled`. Slack message: *"🚫 Customer cancelled — closing."* No send. |
-| Prompt injection in customer email | Read MCP server has no `send_email` and no `post_slack`. Even if a jailbreak fires during retrieval, the agent has no path to either I/O channel until the explicit Send / Slack Write nodes. Capability separation = bounded blast radius. |
-| Slack webhook signature mismatch | FastAPI handler returns 401, no resume happens. Logged as security event. |
-| Slack timestamp older than 5min | Replay attack defense. Rejected with 401. |
-| Human rejects 3 times | Auto-routes to Manual Queue. Slack: *"🚦 3 rejections — manual queue."* Customer notified by email. |
+| Customer follows up mid-pause | `ticket_external_status` flips to `superseded`. Old draft discarded. Feishu card updates: *"⚠️ Customer replied — superseded, see ticket-XXXX."* Follow-up enters as new ticket. |
+| Customer cancels externally | `ticket_external_status` flips to `cancelled`. Feishu card: *"🚫 Customer cancelled — closing."* No send. |
+| Prompt injection in customer email | Read MCP server has no `send_email` and no approval-channel write. Even if a jailbreak fires during retrieval, the agent has no path to either I/O channel until the explicit Send / Approval Write nodes. Capability separation = bounded blast radius. |
+| Feishu callback token mismatch | FastAPI handler returns 401, no resume happens. Logged as a security event. |
+| Replayed callback | The durable graph state controls the next transition; production should add event-ID nonce storage. |
+| Human rejects 3 times | Auto-routes to Manual Queue. Feishu: *"🚦 3 rejections — manual queue."* Customer notified by email. |
 | LangSmith down | Agent continues. Traces buffer locally, replay when LangSmith returns. Observability outage does not break user flow. |
 | LLM rate-limited | Single retry with backoff. Second failure → escalate to human (treat as low confidence). |
 | Hash unchanged but human delays >24h | SLA expires anyway. Manual Queue. Time-based override of staleness check. |
@@ -241,10 +238,10 @@ Jamie still gets a reply via real email, threaded under her original. She's stil
 
 | Layer | Real | Mocked |
 |---|---|---|
-| **I/O channels** | Gmail IMAP IDLE (in) + SMTP (out), real Slack with multi-channel routing | — |
+| **I/O channels** | Tencent/NetEase enterprise IMAP IDLE (in) + SMTP (out), real Feishu with configurable chat routing | — |
 | **LLM / observability** | OpenRouter (DeepSeek), LangSmith tracing | — |
 | **Orchestration** | LangGraph + SQLite checkpointer | — |
-| **Tools** | Three capability-split MCP servers (Read / Email Write / Slack Write) | — |
+| **Tools** | Three capability-split MCP servers (Read / Email Write / Approval Write) | — |
 | **Eval data** | 10 hand-curated tickets, one per code path (`eval/dataset.py`) — external-benchmark eval (Bitext) deferred to v4.1 | — |
 | **Customer database** | — | `data/customers_seed.json` (Salesforce-shape) |
 | **CRM profiles** | — | Mock `get_crm_profile` returns shaped data |
@@ -270,7 +267,7 @@ Every trace tagged in LangSmith with `graph_version`, `intent`, `outcome`, `huma
 
 ## The whole thing in one sentence
 
-Jamie sends email → IMAP catches it → agent classifies + drafts → either auto-sends (FAQ-tier) or **posts to the right Slack channel by priority routing → pauses (durable) → human clicks Approve/Edit/Reject → resumes** → SMTP sends the threaded reply → Jamie's phone buzzes. Customer never sees the agent or Slack.
+Jamie sends email → IMAP catches it → agent classifies + drafts → either auto-sends (FAQ-tier) or **posts to the right Feishu chat by priority routing → pauses (durable) → human clicks Approve/Edit/Reject → resumes** → SMTP sends the threaded reply → Jamie's phone buzzes. Customer never sees the agent or Feishu.
 
 ---
 
@@ -281,7 +278,7 @@ Jamie sends email → IMAP catches it → agent classifies + drafts → either a
 ### What stays exactly the same
 
 - Steps 1-4: ingestion, PII redact, classify intent — identical
-- Steps 7-17: gates, channel router, Slack post, interrupt, resume, finalize, send, audit — identical
+- Steps 7-17: gates, approval router, Feishu card, interrupt, resume, finalize, send, audit — identical
 - Hard invariants — PII determinism, `false_auto_send_rate=0%`, interrupt_gate isolation, idempotent send, append-only audit, MCP capability isolation
 
 ### Step 5 becomes the Researcher Agent
@@ -298,7 +295,7 @@ We ran 10 tickets through both v3 and v4 with real LLM calls. **`false_auto_send
 
 ### What v4 didn't change
 
-Jamie's experience is identical to the v3 walkthrough. Her phone still buzzes with a real email reply, threaded under her original "Refund please" message, looking like it came from a competent human at a real support team. The internal pre-Slack drafting is now a 3-agent pipeline (Researcher → Drafter ↔ Critic) instead of two deterministic nodes — but the Slack post, the human approval, the threading headers, the idempotent send, and the audit log are bit-for-bit the same.
+Jamie's experience is identical to the v3 walkthrough. Her phone still buzzes with a real email reply, threaded under her original "Refund please" message, looking like it came from a competent human at a real support team. The internal pre-Feishu drafting is now a 3-agent pipeline (Researcher → Drafter ↔ Critic) instead of two deterministic nodes — but the Feishu card, the human approval, the threading headers, the idempotent send, and the audit log are bit-for-bit the same.
 
 ### Cross-links
 

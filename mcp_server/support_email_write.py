@@ -1,23 +1,26 @@
-"""MCP EMAIL WRITE Server — capability-isolated to Gmail SMTP only.
+"""MCP EMAIL WRITE Server — capability-isolated to enterprise SMTP only.
 
 Implements spec.md §8 "MCP EMAIL WRITE Server":
   - send_email(to, subject, body, in_reply_to, idempotency_key, references)
-    → sends via Gmail SMTP; app-layer idempotent.
+    → sends via Tencent/NetEase enterprise SMTP; app-layer idempotent.
 
 Critical invariants (spec §6 Send Email, CLAUDE.md):
   1. App-layer idempotency: before SMTP call, check mcp_server/.email_idem.db for
      the idempotency_key. If already sent, return cached sent_message_id.
-  2. Three threading headers (ALL required for Gmail threading):
+   2. Three threading headers (kept for provider-independent threading):
        In-Reply-To: <original_message_id>
        References: <original_message_id>
        Subject: Re: <original subject>
-  3. ZERO Slack code. Cannot post to Slack under any circumstance.
+   3. ZERO approval-channel code. Cannot post to Feishu or Slack under any circumstance.
 
 Env vars read (from .env.example):
-  GMAIL_USER           — sender address (e.g. support@yourcompany.com)
-  GMAIL_APP_PASSWORD   — Gmail App Password (not the account password)
-  GMAIL_SMTP_HOST      — defaults to smtp.gmail.com
-  GMAIL_SMTP_PORT      — defaults to 587
+  EMAIL_USER           — sender address (e.g. support@example.com)
+  EMAIL_APP_PASSWORD   — enterprise-mail client authorization code
+  EMAIL_SMTP_HOST      — defaults to Tencent enterprise SMTP
+  EMAIL_SMTP_PORT      — 465 (implicit TLS) or 587 (STARTTLS)
+
+  GMAIL_* names remain accepted as a backwards-compatible alias for old
+  deployments and tests; they are not required for a new setup.
 
 Run standalone (stdio):
     python mcp_server/support_email_write.py
@@ -44,10 +47,37 @@ logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 # ---------------------------------------------------------------------------
 # Config — read from env, never hardcoded
 # ---------------------------------------------------------------------------
-GMAIL_USER: str = os.environ.get("GMAIL_USER", "")
-GMAIL_APP_PASSWORD: str = os.environ.get("GMAIL_APP_PASSWORD", "")
-GMAIL_SMTP_HOST: str = os.environ.get("GMAIL_SMTP_HOST", "smtp.gmail.com")
-GMAIL_SMTP_PORT: int = int(os.environ.get("GMAIL_SMTP_PORT", "587"))
+
+EMAIL_PROVIDER: str = os.environ.get("EMAIL_PROVIDER", "tencent").strip().lower()
+_SMTP_DEFAULTS: dict[str, tuple[str, int]] = {
+    "tencent": ("smtp.exmail.qq.com", 465),
+    "netease": ("smtphz.qiye.163.com", 465),
+}
+_default_smtp_host, _default_smtp_port = _SMTP_DEFAULTS.get(
+    EMAIL_PROVIDER, _SMTP_DEFAULTS["tencent"]
+)
+
+# Keep the old constant names because existing tests and downstream users may
+# monkeypatch them. Their values now come from the generic EMAIL_* settings.
+GMAIL_USER: str = os.environ.get("EMAIL_USER") or os.environ.get("GMAIL_USER", "")
+GMAIL_APP_PASSWORD: str = os.environ.get("EMAIL_APP_PASSWORD") or os.environ.get(
+    "GMAIL_APP_PASSWORD", ""
+)
+GMAIL_SMTP_HOST: str = (
+    os.environ.get("EMAIL_SMTP_HOST")
+    or os.environ.get("GMAIL_SMTP_HOST")
+    or _default_smtp_host
+)
+GMAIL_SMTP_PORT: int = int(
+    os.environ.get("EMAIL_SMTP_PORT")
+    or os.environ.get("GMAIL_SMTP_PORT")
+    or str(_default_smtp_port)
+)
+GMAIL_SMTP_SECURITY: str = (
+    os.environ.get("EMAIL_SMTP_SECURITY")
+    or os.environ.get("GMAIL_SMTP_SECURITY")
+    or ("ssl" if GMAIL_SMTP_PORT == 465 else "starttls")
+).strip().lower()
 
 # ---------------------------------------------------------------------------
 # Idempotency DB — tiny SQLite table keyed by idempotency_key
@@ -168,7 +198,7 @@ def _build_message(
     msg["Date"] = email.utils.formatdate(localtime=False)
     msg["Message-ID"] = f"<{message_id}>"
 
-    # Ensure Subject starts with "Re: " for Gmail threading
+    # Keep the conventional reply subject for all enterprise mail providers.
     if not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
     msg["Subject"] = subject
@@ -193,44 +223,48 @@ def _build_message(
 async def _smtp_send(msg: EmailMessage) -> str:
     """Send *msg* via aiosmtplib and return the sent Message-ID.
 
-    In networks where smtp.gmail.com is blocked (e.g. GFW), aiosmtplib's
-    default direct connect fails with an SSL EOF because it does NOT read
-    system proxy env vars. When HTTPS_PROXY/HTTP_PROXY is set, we tunnel
-    through it via HTTP CONNECT and pass the raw socket to aiosmtplib.
+    The security mode is inferred from EMAIL_SMTP_SECURITY or the configured
+    port, so Tencent/NetEase port 465 uses implicit TLS while port 587 uses
+    STARTTLS. A configured proxy tunnel is still supported for environments
+    where direct outbound TCP is unavailable.
     """
-    import aiosmtplib  # local import — zero Slack code in module namespace
+    import aiosmtplib  # local import — zero approval-channel code in this module
 
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
         raise RuntimeError(
-            "GMAIL_USER and GMAIL_APP_PASSWORD must be set in environment. "
+            "EMAIL_USER and EMAIL_APP_PASSWORD must be set in environment. "
             "See .env.example."
         )
+
+    tls_kwargs: dict[str, Any]
+    if GMAIL_SMTP_SECURITY in {"ssl", "tls", "implicit_tls"} or GMAIL_SMTP_PORT == 465:
+        tls_kwargs = {"use_tls": True, "validate_certs": True}
+    else:
+        tls_kwargs = {"start_tls": True, "validate_certs": True}
 
     # Opt-in proxy tunnel (no-op when HTTPS_PROXY is unset → direct connect).
     try:
         from src.proxy_tunnel import smtp_tunnel_socket
-        sock = smtp_tunnel_socket(GMAIL_SMTP_HOST, dest_port=465)
-        # Tunnel is a plain TCP pipe to Gmail:443-equivalent; aiosmtplib does
-        # the full TLS handshake itself via use_tls.
+        sock = smtp_tunnel_socket(GMAIL_SMTP_HOST, dest_port=GMAIL_SMTP_PORT)
+        # The tunnel is a plain TCP pipe; aiosmtplib performs the configured
+        # TLS handshake on top of it.
         await aiosmtplib.send(
             msg,
             hostname=GMAIL_SMTP_HOST,
             sock=sock,
             username=GMAIL_USER,
             password=GMAIL_APP_PASSWORD,
-            use_tls=True,
-            validate_certs=True,
+            **tls_kwargs,
         )
     except RuntimeError:
-        # No proxy configured → fall back to the configured direct host/port
-        # (default smtp.gmail.com:587 with STARTTLS).
+        # No proxy configured → use the configured direct host/port.
         await aiosmtplib.send(
             msg,
             hostname=GMAIL_SMTP_HOST,
             port=GMAIL_SMTP_PORT,
             username=GMAIL_USER,
             password=GMAIL_APP_PASSWORD,
-            start_tls=True,
+            **tls_kwargs,
         )
     # Message-ID was set before send; return it as the stable sent_message_id
     return str(msg["Message-ID"])
@@ -242,9 +276,9 @@ async def _smtp_send(msg: EmailMessage) -> str:
 mcp = FastMCP(
     "support-email-write",
     instructions=(
-        "EMAIL WRITE server. Sends customer reply emails via Gmail SMTP. "
+        "EMAIL WRITE server. Sends customer reply emails via enterprise SMTP. "
         "App-layer idempotent — will not double-send for the same idempotency_key. "
-        "Has no ability to read CRM data or post to Slack."
+        "Has no ability to read CRM data or post to the approval channel."
     ),
 )
 
@@ -258,12 +292,12 @@ async def send_email(
     idempotency_key: str,
     references: str = "",
 ) -> dict[str, Any]:
-    """Send a reply email via Gmail SMTP, idempotently.
+    """Send a reply email via configured enterprise SMTP, idempotently.
 
     Args:
         to:               Recipient email address.
         subject:          Email subject. If it doesn't start with 'Re: ', the
-                          server prepends it (required for Gmail threading).
+                           server prepends it for normal reply threading.
         body:             Plain-text body of the reply.
         in_reply_to:      RFC-822 Message-ID of the customer's original email
                           (used for In-Reply-To AND References headers).

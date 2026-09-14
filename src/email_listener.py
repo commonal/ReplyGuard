@@ -1,8 +1,8 @@
-"""IMAP email listener — turns inbound Gmail into LangGraph entry points.
-IMAP 邮件监听器，负责实时监听 Gmail 收件箱，并将每封新邮件转化为 AI 客服系统（LangGraph）的初始工单
+"""IMAP email listener — turns inbound enterprise email into LangGraph entry points.
+IMAP 邮件监听器，负责实时监听企业邮箱收件箱，并将每封新邮件转化为 AI 客服系统（LangGraph）的初始工单
 Two modes (architecture.md "Detailed flow"):
-  - **Preferred:** IMAP IDLE — Gmail pushes a notification within ~1s of the
-    new mail arriving. Implemented via `aioimaplib`.
+  - **Preferred:** IMAP IDLE — the mail provider pushes a notification when a
+    new message arrives. Implemented via `aioimaplib`.
   - **Fallback:** poll every `IMAP_POLL_INTERVAL_SEC` seconds if IDLE drops
     or is unsupported on the connection.
 
@@ -76,7 +76,7 @@ _ENVELOPE_RE = re.compile(r"<([^>]+)>|([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za
 def _extract_envelope_from(msg: stdlib_email.message.Message) -> str:
     """Return the SMTP envelope-from address from `Return-Path`.
 
-    Gmail (and most MTAs) populate `Return-Path` with the actual SMTP
+    Most MTAs populate `Return-Path` with the actual SMTP
     envelope-from. This is the trustworthy sender — the RFC-822 `From:`
     header is content the sender controls and is spoofable.
 
@@ -148,12 +148,12 @@ def ticket_to_initial_state(ticket: dict[str, Any]) -> Any:
 
 async def listen_forever(on_ticket: Any) -> None:  # on_ticket: async callable(ticket_id, state)
     """Main loop. `on_ticket` receives every new email as (ticket_id, AgentState)."""
-    settings.require_secrets("gmail_user", "gmail_app_password") #需要配置文件存在
+    settings.require_secrets("email_user", "email_app_password")
 
     while True:
         try:
             await _idle_loop(on_ticket)
-        except Exception as exc:  # broad: connection errors, network blips IDLE 一旦抛出异常（网络断开、Gmail 踢连接、超时），捕获告警日志，**自动降级进入轮询模式`_poll_loop()`**
+        except Exception as exc:  # broad: connection errors and network blips; fall back to polling
             log.warning("IMAP IDLE failed (%s) — falling back to poll", exc)
             try:
                 await _poll_loop(on_ticket)
@@ -172,22 +172,29 @@ async def _connect() -> aioimaplib.IMAP4_SSL:
         from src.proxy_tunnel import imap_tunnel_socket
 
         loop = asyncio.get_running_loop()
-        raw = await imap_tunnel_socket(settings.gmail_imap_host, 993)
-        client = aioimaplib.IMAP4(host=settings.gmail_imap_host, port=993, loop=loop)
+        raw = await imap_tunnel_socket(settings.email_imap_host, settings.email_imap_port)
+        client = aioimaplib.IMAP4(
+            host=settings.email_imap_host,
+            port=settings.email_imap_port,
+            loop=loop,
+        )
         ctx = ssl.create_default_context()
         transport, _proto = await loop.create_connection(
             lambda: client.protocol,
             sock=raw,
             ssl=ctx,
-            server_hostname=settings.gmail_imap_host,
+            server_hostname=settings.email_imap_host,
         )
         # aioimaplib awaits wait_hello via the protocol's state machine; the
         # create_client path in __init__ already scheduled a task we replaced.
     except RuntimeError:
         # No SOCKS5 proxy → use the default direct SSL connect.
-        client = aioimaplib.IMAP4_SSL(host=settings.gmail_imap_host)
+        client = aioimaplib.IMAP4_SSL(
+            host=settings.email_imap_host,
+            port=settings.email_imap_port,
+        )
     await client.wait_hello_from_server()
-    await client.login(settings.gmail_user, settings.gmail_app_password)
+    await client.login(settings.email_user, settings.email_app_password)
     await client.select("INBOX")
     return client
 
@@ -200,8 +207,8 @@ async def _idle_loop(on_ticket: Any) -> None:
 
         while True:
             #后台运行的异步idle会话任务
-            idle_task = await client.idle_start(timeout=29 * 60)  # < Gmail's 30min ceiling
-            await client.wait_server_push() #等待 Gmail 服务端推送事件
+            idle_task = await client.idle_start(timeout=29 * 60)  # < common 30min ceiling
+            await client.wait_server_push() #等待服务端推送事件
             client.idle_done() #收到推送事件之后，客户端必须发送 `DONE` 命令结束 IDLE 状态，之后才能执行 SEARCH / FETCH 这类普通 IMAP 指令
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(idle_task, timeout=10) #回收idle，十秒后如果没有成功

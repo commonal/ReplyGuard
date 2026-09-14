@@ -1,4 +1,4 @@
-"""Channel router — picks the target Slack channel from AgentState.
+"""Approval destination router — picks the target channel from AgentState.
 
 Scope (adviserplan.md §Phase 2 — Track C):
   3 channels for the 6-10h build:
@@ -17,13 +17,16 @@ Priority order (CLAUDE.md "Channel router priority"):
 
 Rules are lexicographic / priority-ordered, NOT fuzzy. First match wins.
 
-Pure function — no I/O, no LLM, no DB. Tests run instantly.
+Pure function — no I/O, no LLM, no DB. Tests run instantly. The returned
+destination is a Feishu receive ID when the Feishu provider is configured, or
+the legacy Slack channel name when the fallback provider is selected.
 Side effect: writes `slack_channel` to state (the node calling this should
 persist that write back into the LangGraph state update).
 """
 
 from __future__ import annotations
 
+from src.config import settings
 from src.state import AgentState
 
 # ---------------------------------------------------------------------------
@@ -51,7 +54,7 @@ _DEFAULT_CHANNEL = CHANNEL_TECHNICAL
 
 
 def route_channel(state: AgentState) -> str:
-    """Return the Slack channel string for this ticket and write it to state.
+    """Return the configured approval destination and write it to state.
 
     Priority:
       1. sentiment == angry  → #support-complaints  (highest)
@@ -62,17 +65,25 @@ def route_channel(state: AgentState) -> str:
         state: The current AgentState. Mutated in-place to set `slack_channel`.
 
     Returns:
-        The channel string, e.g. "#support-complaints".
+        A Feishu receive ID (for example ``oc_...``) or a legacy Slack
+        channel string (for example ``#support-complaints``).
     """
     sentiment: str = state.get("sentiment", "") or ""
     intent: str = state.get("intent", "") or ""
 
     # Priority 1 — angry sentiment overrides everything
+    destinations = settings.channel_set
     if sentiment == "angry":
-        channel = CHANNEL_COMPLAINTS
+        channel = destinations["complaints"]
     else:
         # Priority 2 — intent-based routing with catch-all fallback
-        channel = _INTENT_MAP.get(intent, _DEFAULT_CHANNEL)
+        logical_channel = _INTENT_MAP.get(intent, _DEFAULT_CHANNEL)
+        if logical_channel == CHANNEL_REFUNDS:
+            channel = destinations["refunds"]
+        elif logical_channel == CHANNEL_COMPLAINTS:
+            channel = destinations["complaints"]
+        else:
+            channel = destinations["technical"]
 
     # Write back into state so the graph can persist it
     state["slack_channel"] = channel

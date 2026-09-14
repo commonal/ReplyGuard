@@ -8,7 +8,7 @@
 - Toggle: `MULTIAGENT_ENABLED=1` enables v4 (**default since 2026-05-23**). `=0` keeps v3 path for direct comparison.
 - **Both paths retained intentionally** — the v3↔v4 head-to-head IS the deliverable. On the 10-ticket curated + 10-ticket Bitext eval sets v3 and v4 tied; on the 27-intent breadth eval and 25-ticket adversarial set **v4 caught 5/6 dangerous false auto-sends v3 missed** and 3 more classifier_trap cases — that's what drove the default flip. Trade-off: v4 ~2× cost/ticket and over-escalates some simple FAQs. Full audit in `eval/bitext27_findings.md` + `discussion.md`.
 - Live LLM eval results: both modes hold `false_auto_send_rate = 0%` on the 10-ticket curated + 10-ticket Bitext sets. Both FAIL safety on bitext27 (v3=54.5%, v4=50% of auto-sends wrong — small denominator; absolute count fell 6 → 1).
-- Tests: 148/148 passing in both flag modes. CI green on every PR.
+- Tests: 157/157 passing in the current suite. CI green on every PR.
 
 ## Source docs
 
@@ -32,7 +32,7 @@
 
 ## What we're building
 
-Agent-first, human-on-demand customer support agent. **Real Gmail** in/out (IMAP IDLE / SMTP), **real Slack** with 3 channels routed by priority (cut from spec's 6 — config-driven), durable LangGraph workflow, **three capability-isolated MCP servers**. Mock CRM + fictional **ACME SaaS Co** policy corpus. **v3 single-agent + v4 multi-agent (Researcher + Drafter↔Critic)** behind `MULTIAGENT_ENABLED` flag. Agent owns the workflow, humans get pulled in only when needed.
+Agent-first, human-on-demand customer support agent. **Real Tencent/NetEase enterprise mail** in/out (IMAP IDLE / SMTP), **real Feishu** approval cards with configurable test-chat routing, durable LangGraph workflow, **three capability-isolated MCP servers**. Mock CRM + fictional **ACME SaaS Co** policy corpus. **v3 single-agent + v4 multi-agent (Researcher + Drafter↔Critic)** behind `MULTIAGENT_ENABLED` flag. Agent owns the workflow, humans get pulled in only when needed.
 
 ## Tech stack (do not substitute without asking)
 
@@ -41,17 +41,17 @@ Agent-first, human-on-demand customer support agent. **Real Gmail** in/out (IMAP
 | Orchestration | **LangGraph** + SQLite checkpointer (super-step boundary persistence) |
 | LLM | OpenRouter (DeepSeek V3 free) — single model |
 | Observability | **LangSmith** (every step traced; tag set in `architecture.md`) |
-| Customer I/O | **Real Gmail** — IMAP IDLE in / SMTP out, threaded replies |
-| Approval channel | **Real Slack** — Bolt SDK; Socket Mode in dev, webhook+HMAC in prod |
-| Edit modal | Slack `views.open` modal (Socket Mode dev / webhook prod). Web fallback `ui/edit.html` was scoped but not built — modal is sufficient and the spec keeps the human in Slack throughout. |
-| Tools | **Three MCP servers** — Read / Email Write / Slack Write |
+| Customer I/O | **Real Tencent/NetEase enterprise mail** — IMAP IDLE in / SMTP out, threaded replies |
+| Approval channel | **Real Feishu** — Open Platform card API; FastAPI callback in the test enterprise |
+| Edit form | Feishu card form (the default path). Slack `views.open` modal remains available only for the legacy fallback; web fallback `ui/edit.html` was not built. |
+| Tools | **Three MCP servers** — Read / Email Write / Approval Write |
 | Policy corpus | `data/acme_policies.md` (fictional, RAG-retrieved) |
 | Backend | FastAPI |
 | Eval data | 10 hand-curated tickets (`eval/dataset.py`) + 10 real Bitext tickets (`eval/bitext_dataset.py` — first batch, 10 of Bitext's 27 intents) |
 
-## Graph node order — Slack post BEFORE interrupt!
+## Graph node order — Feishu post BEFORE interrupt!
 
-`Email Listener` → `PII Redact` → `Classify Intent` → `Enrich Context` → `Draft Response` → `Policy Risk Check` (Gate 1) → `Confidence Check` (Gate 2) → `Channel Router` → **`Slack Notification`** → **`Interrupt Gate`** (pause) → resume → action {reject / approve / edit} → `Reject Check` (loop to Draft if <3) OR `Elapsed Check` → `Revalidate Context` → `Summarize Changes` (delta posted on same Slack msg) → `Finalize Action` (PII restore + threading headers) → `Send Email` → `Audit Log`.
+`Email Listener` → `PII Redact` → `Classify Intent` → `Enrich Context` → `Draft Response` → `Policy Risk Check` (Gate 1) → `Confidence Check` (Gate 2) → `Channel Router` → **`Approval Notification`** → **`Interrupt Gate`** (pause) → resume → action {reject / approve / edit} → `Reject Check` (loop to Draft if <3) OR `Elapsed Check` → `Revalidate Context` → `Summarize Changes` (delta posted on same Feishu card) → `Finalize Action` (PII restore + threading headers) → `Send Email` → `Audit Log`.
 
 Auto-send path skips from Confidence Check straight to Finalize.
 
@@ -62,30 +62,30 @@ Auto-send path skips from Confidence Check straight to Finalize.
 - Auto-send only when both pass AND `intent in {FAQ, info, basic_technical}`.
 - **Primary safety metric:** `false_auto_send_rate = 0%`.
 
-## Channel router priority (in `src/slack_router.py`) — higher wins on conflict
+## Approval destination priority (in `src/slack_router.py`) — higher wins on conflict
 
-The shipped router is a **3-channel build** (`#support-refunds`, `#support-technical`, `#support-complaints`). Two priorities, first match wins:
+The shipped router is a **3-destination build** (`FEISHU_CHAT_REFUNDS`, `FEISHU_CHAT_TECHNICAL`, `FEISHU_CHAT_COMPLAINTS`). Two priorities, first match wins:
 
-1. `sentiment == angry` → `#support-complaints` (overrides everything)
-2. by `intent` → `#support-refunds` (refund) · `#support-technical` (technical/basic_technical/info, plus catch-all for billing/complaint/FAQ/other)
+1. `sentiment == angry` → configured complaints chat (overrides everything)
+2. by `intent` → configured refunds chat (refund) · configured technical chat (technical/basic_technical/info, plus catch-all for billing/complaint/FAQ/other)
 
-**Deferred (config-only addition, not implemented):** `#support-legal`, `#support-enterprise`, `#support-billing`. The spec describes a 4-priority chain with `legal/compliance > Enterprise+risk > angry > intent`, but the 6-10h build scoped to 3 channels per `adviserplan.md`. `src/slack_router.py`'s docstring is the source of truth for the current behaviour.
+**Deferred (config-only addition, not implemented):** legal/compliance, Enterprise+risk, and billing-specific destinations. The spec describes a 4-priority chain with `legal/compliance > Enterprise+risk > angry > intent`, but the 6-10h build scoped to 3 destinations per `adviserplan.md`. `src/slack_router.py`'s docstring is the source of truth for the current behaviour.
 
 ## Implementation rules (NON-NEGOTIABLE — silent failures otherwise)
 
-1. **`interrupt()` lives in its own dedicated node.** No DB / MCP / audit / log calls in that node. On resume the node restarts from the top; side effects duplicate. Slack post is a *separate* node *before* the interrupt node.
+1. **`interrupt()` lives in its own dedicated node.** No DB / MCP / audit / log calls in that node. On resume the node restarts from the top; side effects duplicate. Feishu card post is a *separate* node *before* the interrupt node.
 2. **Never wrap `interrupt()` in `try/except`.** It raises a special exception the LangGraph runtime catches. Wrapping breaks the pause.
 
 ## Critical invariants
 
 - **App-layer idempotent send.** `Send Email` checks `sent_message_id` in state before SMTP. SMTP itself does not dedupe.
-- **Three threading headers required.** `In-Reply-To` AND `References` AND `Subject: Re: ...` — missing any breaks Gmail threading.
-- **Slack webhook signature** (when not on Socket Mode) — HMAC-SHA256 of `v0:{timestamp}:{body}`, 5-min replay window, constant-time compare.
-- **MCP capability isolation.** Read cannot send. Email Write cannot Slack. Slack Write cannot email. Capability separation = bounded blast radius for prompt injection.
+- **Three threading headers required.** `In-Reply-To` AND `References` AND `Subject: Re: ...` — required for provider-independent reply threading.
+- **Feishu callback verification** — compare the configured application verification token; the Slack HMAC verifier remains available only for the legacy fallback.
+- **MCP capability isolation.** Read cannot send. Email Write cannot post to Feishu/Slack. Approval Write cannot email. Capability separation = bounded blast radius for prompt injection.
 - **Append-only audit log.** Never mutate; both `original_draft` and `final_draft` saved when human edits.
 - **PII redact at entry / restore in Finalize.** LLM never sees real PII.
 - **Bounded loops.** `human_rejection_count >= 3` → `manual_queue`. `send_retry_count >= 3` → `failed_manual`.
-- **`thread_id == ticket_id`** — stable LangGraph thread identifier; `slack_message_ts` lets webhook resume target the right Slack message.
+- **`thread_id == ticket_id`** — stable LangGraph thread identifier; the compatibility field `slack_message_ts` stores the Feishu message ID so callbacks resume the right card.
 
 ## State schema essentials (full block in `spec.md §5`)
 
@@ -98,15 +98,15 @@ src/         state.py  graph.py  graph_runner.py  nodes.py  llm.py  metrics.py
              config.py  policy.py  slack_router.py  pii.py
              email_listener.py  slack_handler.py  mcp_client.py  server.py
 src/agents/  base.py  researcher.py  drafter.py  critic.py   # v4 multi-agent
-mcp_server/  support_read.py  support_email_write.py  support_slack_write.py
+mcp_server/  support_read.py  support_email_write.py  support_feishu_write.py
 data/        acme_policies.md  customers_seed.json
              bitext_eval_10.csv  bitext_eval_27.csv  prompts/
 eval/        run_experiments.py  evaluators.py  dataset.py  bitext_dataset.py
              adversarial_dataset.py  adversarial_evaluators.py  cross_judge.py
              critic_intercept.py  stats.py
              METHODOLOGY.md  bitext_findings.md  bitext27_findings.md  discussion.md
-ui/          (empty — edit.html fallback was scoped but not built; Slack modal is the only edit path)
-tests/       (148 total — test_policy, test_slack_router, test_pii, test_resume,
+ui/          (empty — edit.html fallback was scoped but not built; Feishu card form is the default edit path, Slack modal is legacy)
+tests/       (157 total — test_policy, test_slack_router, test_feishu_adapter, test_pii, test_resume,
              test_email_idempotency, test_slack_handler, test_critic_invariants,
              test_v4_integration, test_v4_integration_smoke, test_metrics,
              test_drafter_critic_loop, test_mcp_subprocess_boot, test_integration_smoke,
@@ -120,7 +120,7 @@ scripts/     preflight_smoke.py                   # credential pre-flight probe
 ## Env vars (see `.env.example`)
 
 Tunables (defaults): `REVALIDATE_THRESHOLD_MIN=15` · `MAX_HUMAN_REJECTIONS=3` · `MAX_SEND_RETRIES=3` · `SLA_DEADLINE_HOURS=24` · `IMAP_POLL_INTERVAL_SEC=30`.
-Secrets: `OPENROUTER_API_KEY` · `LANGSMITH_API_KEY` · `LANGSMITH_PROJECT` · `GMAIL_USER` · `GMAIL_APP_PASSWORD` · `SLACK_BOT_TOKEN` · `SLACK_SIGNING_SECRET` · `SLACK_APP_TOKEN` (Socket Mode).
+Secrets: `OPENROUTER_API_KEY` · `LANGSMITH_API_KEY` · `LANGSMITH_PROJECT` · `EMAIL_USER` · `EMAIL_APP_PASSWORD` · `FEISHU_APP_ID` · `FEISHU_APP_SECRET` · `FEISHU_VERIFICATION_TOKEN` (old `GMAIL_*` / Slack names remain compatibility aliases).
 
 ## Build conventions
 
@@ -132,13 +132,13 @@ Secrets: `OPENROUTER_API_KEY` · `LANGSMITH_API_KEY` · `LANGSMITH_PROJECT` · `
 
 ## Three demo recordings required
 
-1. **Durable execution** — kill server mid-interrupt → restart → Slack approve → real email arrives. **Requires `PII_VAULT_DB_PATH` set** (opt-in persistent sidecar; default off preserves the 2026-05-09 C1/C2 in-memory-only PII hardening). `docker-compose.yml` opts in by default for the demo. Without the sidecar, resume cannot resolve the trustworthy recipient address and routes the ticket to `failed_manual` — bug found in the live smoke test 2026-05-24, fixed in `src/pii.py` + `src/config.py`; threat-model row A2 documents the trade-off.
-2. **Approve-with-edits** — Slack modal edit; audit log shows both drafts.
-3. **SLA timeout** — 24h no Slack response → auto-escalate to `manual_queue` + Slack notice.
+1. **Durable execution** — kill server mid-interrupt → restart → Feishu approve → real email arrives. **Requires `PII_VAULT_DB_PATH` set** (opt-in persistent sidecar; default off preserves the 2026-05-09 C1/C2 in-memory-only PII hardening). `docker-compose.yml` opts in by default for the demo. Without the sidecar, resume cannot resolve the trustworthy recipient address and routes the ticket to `failed_manual` — bug found in the live smoke test 2026-05-24, fixed in `src/pii.py` + `src/config.py`; threat-model row A2 documents the trade-off.
+2. **Approve-with-edits** — Feishu card form edit; audit log shows both drafts.
+3. **SLA timeout** — 24h no Feishu response → auto-escalate to `manual_queue` + Feishu notice.
 
 ## Red flags — do not ship with these
 
-Hardcoded keys · Single test case (no real eval set) · No restart-resume demo · Approve/Reject only (no Edit) · No audit log · No idempotency on send · Fake v1→v2→v3 metrics · **Slack post AFTER interrupt** (graph hangs forever) · Read-MCP exposing send_email (capability bleed).
+Hardcoded keys · Single test case (no real eval set) · No restart-resume demo · Approve/Reject only (no Edit) · No audit log · No idempotency on send · Fake v1→v2→v3 metrics · **Feishu post AFTER interrupt** (graph hangs forever) · Read-MCP exposing send_email (capability bleed).
 
 ## MCPs configured (Claude Code dev environment)
 

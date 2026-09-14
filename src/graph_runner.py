@@ -89,7 +89,7 @@ async def startup() -> None:
         _router_stack = AsyncExitStack()
         await _router_stack.__aenter__()
         _router = await _router_stack.enter_async_context(MCPClientRouter())
-        log.info("MCP client router started (3 subprocesses: read / email / slack)")
+        log.info("MCP client router started (3 subprocesses: read / email / approval)")
 
 
 async def shutdown_async() -> None:

@@ -10,7 +10,24 @@ so a missing value fails loudly at startup.
 
 from __future__ import annotations
 
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_EMAIL_DEFAULTS: dict[str, dict[str, str | int]] = {
+    "tencent": {
+        "imap_host": "imap.exmail.qq.com",
+        "smtp_host": "smtp.exmail.qq.com",
+        "imap_port": 993,
+        "smtp_port": 465,
+    },
+    "netease": {
+        "imap_host": "imaphz.qiye.163.com",
+        "smtp_host": "smtphz.qiye.163.com",
+        "imap_port": 993,
+        "smtp_port": 465,
+    },
+}
 
 
 class Settings(BaseSettings):
@@ -34,22 +51,102 @@ class Settings(BaseSettings):
     # Set to https://eu.api.smith.langchain.com for EU-region accounts.
     langsmith_endpoint: str = ""
 
-    # ---- Gmail ----
-    gmail_user: str = ""
-    gmail_app_password: str = ""
-    gmail_imap_host: str = "imap.gmail.com"
-    gmail_smtp_host: str = "smtp.gmail.com"
-    gmail_smtp_port: int = 587
+    # ---- Enterprise email (Tencent by default; NetEase is one env switch) ----
+    # The GMAIL_* aliases are intentionally kept for old deployments and
+    # checkpoints. New installations should use EMAIL_* names.
+    email_provider: str = Field(
+        default="tencent",
+        validation_alias=AliasChoices("EMAIL_PROVIDER", "MAIL_PROVIDER"),
+    )
+    email_user: str = Field(
+        default="",
+        validation_alias=AliasChoices("EMAIL_USER", "GMAIL_USER"),
+    )
+    email_app_password: str = Field(
+        default="",
+        validation_alias=AliasChoices("EMAIL_APP_PASSWORD", "GMAIL_APP_PASSWORD"),
+    )
+    email_imap_host: str = Field(
+        default="imap.exmail.qq.com",
+        validation_alias=AliasChoices("EMAIL_IMAP_HOST", "GMAIL_IMAP_HOST"),
+    )
+    email_imap_port: int = Field(
+        default=993,
+        validation_alias=AliasChoices("EMAIL_IMAP_PORT", "GMAIL_IMAP_PORT"),
+    )
+    email_smtp_host: str = Field(
+        default="smtp.exmail.qq.com",
+        validation_alias=AliasChoices("EMAIL_SMTP_HOST", "GMAIL_SMTP_HOST"),
+    )
+    email_smtp_port: int = Field(
+        default=465,
+        validation_alias=AliasChoices("EMAIL_SMTP_PORT", "GMAIL_SMTP_PORT"),
+    )
+    # Empty means infer SSL for port 465 and STARTTLS for other ports.
+    email_smtp_security: str = Field(
+        default="",
+        validation_alias=AliasChoices("EMAIL_SMTP_SECURITY", "GMAIL_SMTP_SECURITY"),
+    )
 
-    # ---- Slack ----
+    # ---- Approval channel (Feishu by default; Slack remains a compatibility fallback) ----
+    approval_provider: str = Field(
+        default="feishu",
+        validation_alias=AliasChoices("APPROVAL_PROVIDER"),
+    )
+    feishu_app_id: str = Field(default="", validation_alias=AliasChoices("FEISHU_APP_ID"))
+    feishu_app_secret: str = Field(
+        default="", validation_alias=AliasChoices("FEISHU_APP_SECRET")
+    )
+    feishu_receive_id_type: str = Field(
+        default="chat_id",
+        validation_alias=AliasChoices("FEISHU_RECEIVE_ID_TYPE"),
+    )
+    feishu_receive_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("FEISHU_RECEIVE_ID", "FEISHU_CHAT_ID"),
+    )
+    feishu_verification_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("FEISHU_VERIFICATION_TOKEN"),
+    )
+    feishu_encrypt_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("FEISHU_ENCRYPT_KEY"),
+    )
+    feishu_api_base_url: str = Field(
+        default="https://open.feishu.cn/open-apis",
+        validation_alias=AliasChoices("FEISHU_API_BASE_URL"),
+    )
+
+    # Per-intent destinations. With Feishu, one test chat is enough; when the
+    # per-intent values are empty, channel_set falls back to FEISHU_RECEIVE_ID.
+    approval_channel_refunds: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "APPROVAL_CHANNEL_REFUNDS", "FEISHU_CHAT_REFUNDS", "SLACK_CHANNEL_REFUNDS"
+        ),
+    )
+    approval_channel_technical: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "APPROVAL_CHANNEL_TECHNICAL",
+            "FEISHU_CHAT_TECHNICAL",
+            "SLACK_CHANNEL_TECHNICAL",
+        ),
+    )
+    approval_channel_complaints: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "APPROVAL_CHANNEL_COMPLAINTS",
+            "FEISHU_CHAT_COMPLAINTS",
+            "SLACK_CHANNEL_COMPLAINTS",
+        ),
+    )
+
+    # ---- Slack compatibility fallback ----
     slack_bot_token: str = ""
     slack_signing_secret: str = ""
     slack_app_token: str = ""
-
-    # 3-channel set per adviserplan.md (cut from spec's 6 — config-driven).
-    slack_channel_refunds: str = "#support-refunds"
-    slack_channel_technical: str = "#support-technical"
-    slack_channel_complaints: str = "#support-complaints"
 
     # ---- Persistence ----
     sqlite_checkpoint_path: str = "./data/checkpoints.sqlite"
@@ -81,12 +178,81 @@ class Settings(BaseSettings):
 
     @property
     def channel_set(self) -> dict[str, str]:
-        """Map of channel-key → channel-name. Used by slack_router."""
-        return {
-            "refunds": self.slack_channel_refunds,
-            "technical": self.slack_channel_technical,
-            "complaints": self.slack_channel_complaints,
+        """Map intent keys to Feishu receive IDs or legacy Slack channels."""
+        defaults = {
+            "refunds": "#support-refunds",
+            "technical": "#support-technical",
+            "complaints": "#support-complaints",
         }
+        configured = {
+            "refunds": self.approval_channel_refunds,
+            "technical": self.approval_channel_technical,
+            "complaints": self.approval_channel_complaints,
+        }
+        fallback = self.feishu_receive_id if self.approval_provider.lower() == "feishu" else ""
+        return {
+            key: value or fallback or defaults[key] for key, value in configured.items()
+        }
+
+    # Read-only aliases for older code and previously documented settings.
+    @property
+    def gmail_user(self) -> str:
+        return self.email_user
+
+    @property
+    def gmail_app_password(self) -> str:
+        return self.email_app_password
+
+    @property
+    def gmail_imap_host(self) -> str:
+        return self.email_imap_host
+
+    @property
+    def gmail_imap_port(self) -> int:
+        return self.email_imap_port
+
+    @property
+    def gmail_smtp_host(self) -> str:
+        return self.email_smtp_host
+
+    @property
+    def gmail_smtp_port(self) -> int:
+        return self.email_smtp_port
+
+    @property
+    def slack_channel_refunds(self) -> str:
+        return self.channel_set["refunds"]
+
+    @property
+    def slack_channel_technical(self) -> str:
+        return self.channel_set["technical"]
+
+    @property
+    def slack_channel_complaints(self) -> str:
+        return self.channel_set["complaints"]
+
+    @model_validator(mode="after")
+    def apply_email_provider_defaults(self) -> "Settings":
+        """Select provider endpoints while preserving explicit env overrides."""
+        provider = self.email_provider.strip().lower()
+        if provider not in _EMAIL_DEFAULTS:
+            allowed = ", ".join(sorted(_EMAIL_DEFAULTS))
+            raise ValueError(f"EMAIL_PROVIDER must be one of: {allowed}")
+
+        self.email_provider = provider
+        defaults = _EMAIL_DEFAULTS[provider]
+        explicit = self.model_fields_set
+        if "email_imap_host" not in explicit:
+            self.email_imap_host = str(defaults["imap_host"])
+        if "email_smtp_host" not in explicit:
+            self.email_smtp_host = str(defaults["smtp_host"])
+        if "email_imap_port" not in explicit:
+            self.email_imap_port = int(defaults["imap_port"])
+        if "email_smtp_port" not in explicit:
+            self.email_smtp_port = int(defaults["smtp_port"])
+        if "email_smtp_security" not in explicit:
+            self.email_smtp_security = "ssl" if self.email_smtp_port == 465 else "starttls"
+        return self
 
     def require_secrets(self, *names: str) -> None:
         """Fail loudly if a secret is empty. Call at startup of each I/O module."""

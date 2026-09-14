@@ -6,7 +6,7 @@ Implements spec.md §8 "MCP READ Server":
   - get_kb_article(query) → ACME policy chunks with verbatim sentence quotes
 
 Connected to: Enrich Context node and Revalidate Context node ONLY.
-Cannot send email. Cannot post to Slack.
+Cannot send email. Cannot post to the approval channel.
 
 Data sources:
   - data/customers_seed.json  (mock CRM — Track C creates this)
@@ -158,7 +158,7 @@ mcp = FastMCP(
     "support-read",
     instructions=(
         "READ-ONLY server. Retrieves CRM profiles, customer history, and ACME KB articles. "
-        "Has no ability to send email or post to Slack."
+        "Has no ability to send email or post to the approval channel."
     ),
 )
 
@@ -275,7 +275,7 @@ def get_kb_article(query: str) -> dict[str, Any]:
       verbatim_quote (the most relevant full sentence from the corpus),
       policy_references (list of policy section IDs, e.g. ["ACME 4.2.1"]).
     Used by Enrich Context to populate policy_matches in AgentState and
-    to supply the KB justification quote rendered in Slack approval messages.
+    to supply the KB justification quote rendered in approval messages.
     """
     return search_kb(query)
 

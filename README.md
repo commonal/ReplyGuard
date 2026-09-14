@@ -3,9 +3,9 @@
 [![CI](https://github.com/Ranjith36963/hitl-support-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Ranjith36963/hitl-support-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-148%2F148-brightgreen)](#test-coverage--148--148)
+[![Tests](https://img.shields.io/badge/tests-157%2F157-brightgreen)](#test-coverage--157--157)
 
-A customer-support agent that drafts replies with an LLM but pauses for a human on Slack whenever the stakes are real — refunds, angry customers, policy edge cases. Built on LangGraph with real Gmail and real Slack (no mocks for the I/O layer), three capability-isolated MCP tool servers, and a measured `false_auto_send_rate = 0%` on the curated eval. Architecture, threat model, and head-to-head v3-vs-v4 multi-agent eval are all in the repo — no fake metrics.
+A customer-support agent that drafts replies with an LLM but pauses for a human in Feishu whenever the stakes are real — refunds, angry customers, policy edge cases. Built on LangGraph with real Tencent/NetEase enterprise email and real Feishu (no mocks for the I/O layer), three capability-isolated MCP tool servers, and a measured `false_auto_send_rate = 0%` on the curated eval. Architecture, threat model, and head-to-head v3-vs-v4 multi-agent eval are all in the repo — no fake metrics.
 
 ![End-to-end flow](docs/hitl-flow.png)
 
@@ -13,7 +13,7 @@ A customer-support agent that drafts replies with an LLM but pauses for a human 
 
 [![Watch Part 1 — Live end-to-end](https://cdn.loom.com/sessions/thumbnails/1dcea3327a774699a705acf79eaab9d4-with-play.gif)](https://www.loom.com/share/1dcea3327a774699a705acf79eaab9d4)
 
-*Part 1 — Email arrives, agent drafts, human approves in Slack, reply lands in the customer's inbox (4 min)*
+*Part 1 — Email arrives, agent drafts, human approves in Feishu, reply lands in the customer's inbox (4 min)*
 
 [![Watch Part 2 — Observability](https://cdn.loom.com/sessions/thumbnails/c1d9a80faf3f453aa3447f525d34ff28-with-play.gif)](https://www.loom.com/share/c1d9a80faf3f453aa3447f525d34ff28)
 
@@ -23,9 +23,9 @@ A customer-support agent that drafts replies with an LLM but pauses for a human 
 
 Live screenshots from a real ticket processed by the v4 multi-agent path:
 
-**Slack approval card** — `risk_flags` fired (refund + money_mention + refund_intent), intent confidence scored, draft reply ready for human review with Approve / Edit / Reject buttons:
+**Feishu approval card** — `risk_flags` fired (refund + money_mention + refund_intent), intent confidence scored, draft reply ready for human review with Approve / Edit / Reject buttons:
 
-![Slack approval card](docs/screenshots/slack-approval-card.png)
+![Feishu approval card](docs/screenshots/slack-approval-card.png)
 
 **Grafana dashboard** — end-to-end ticket latency (p50 ~3s, p95 ~5s), per-call LLM latency, and token throughput split by call site. The drafter and critic dominating the bottom-right panel is the v4 multi-agent path lit up in real numbers — not slideware:
 
@@ -39,7 +39,7 @@ Live screenshots from a real ticket processed by the v4 multi-agent path:
 
 ![LangSmith trace pairs](docs/screenshots/langsmith-trace-pairs.png)
 
-**Status:** v3 single-agent + v4 multi-agent (Researcher + Drafter↔Critic) both shipped behind `MULTIAGENT_ENABLED` flag (default `1` since 2026-05-23 — v4 caught 5/6 dangerous false auto-sends v3 missed on the 27-intent Bitext breadth set; see [`eval/bitext27_findings.md`](./eval/bitext27_findings.md)). **148 / 148 tests passing in both flag modes** (6 Critic-invariant tests, 3 v4 integration smokes, 3 PII vault sidecar tests). Live LLM eval: both versions hold `false_auto_send_rate = 0%` on 10 hand-curated + 10 Bitext tickets; on the 27-intent breadth set both currently fail safety (v3=54.5%, v4=50% of auto-sends wrong; absolute count fell 6 → 1). Demo recordings remain user-action items.
+**Status:** v3 single-agent + v4 multi-agent (Researcher + Drafter↔Critic) both shipped behind `MULTIAGENT_ENABLED` flag (default `1` since 2026-05-23 — v4 caught 5/6 dangerous false auto-sends v3 missed on the 27-intent Bitext breadth set; see [`eval/bitext27_findings.md`](./eval/bitext27_findings.md)). **157 / 157 tests passing** (including the domestic email/Feishu adapter and configuration coverage). Live LLM eval: both versions hold `false_auto_send_rate = 0%` on 10 hand-curated + 10 Bitext tickets; on the 27-intent breadth set both currently fail safety (v3=54.5%, v4=50% of auto-sends wrong; absolute count fell 6 → 1). Demo recordings remain user-action items.
 
 **Looking for the high-trust artifacts?** Architecture: [`docs/architecture.md`](./docs/architecture.md) · Threat model: [`docs/threat_model.md`](./docs/threat_model.md) · Eval methodology: [`eval/METHODOLOGY.md`](./eval/METHODOLOGY.md) · Contributing: [`CONTRIBUTING.md`](./CONTRIBUTING.md) · Security disclosure: [`SECURITY.md`](./SECURITY.md).
 
@@ -47,9 +47,9 @@ Live screenshots from a real ticket processed by the v4 multi-agent path:
 
 ## What it does
 
-Reads inbound customer email from Gmail (real IMAP IDLE). Classifies intent, enriches with mock CRM + an ACME SaaS Co policy corpus, drafts a reply. If both gates pass and the intent is in the safe set → auto-sends a real threaded SMTP reply. Otherwise pauses durably (LangGraph `interrupt()` + AsyncSqliteSaver) and posts a Block Kit approval message to the right Slack channel by priority routing. Human clicks Approve / Edit / Reject — graph resumes and ships.
+Reads inbound customer email from the configured enterprise mailbox (real IMAP IDLE). Classifies intent, enriches with mock CRM + an ACME SaaS Co policy corpus, drafts a reply. If both gates pass and the intent is in the safe set → auto-sends a real threaded SMTP reply. Otherwise pauses durably (LangGraph `interrupt()` + AsyncSqliteSaver) and posts an interactive Feishu approval card to the configured test chat. Human clicks Approve / Edit / Reject — graph resumes and ships.
 
-Customer never sees the agent or Slack. The reply lands in their inbox threaded under the original message.
+Customer never sees the agent or Feishu. The reply lands in their inbox threaded under the original message.
 
 ## Why HITL matters in 2026/2027
 
@@ -57,7 +57,7 @@ Enterprises deploy human-on-demand agents, not full autonomy. Audit trails, dura
 
 ## Architecture
 
-The flow diagram above shows the v3 path top-to-bottom — email in → PII redact → classify → enrich → draft → two gates → either auto-send or pause for human on Slack → finalize → send → audit. **15 graph nodes, 5 conditional edges, 3 capability-isolated MCP servers** (Read · Email Write · Slack Write).
+The flow diagram above shows the v3 path top-to-bottom — email in → PII redact → classify → enrich → draft → two gates → either auto-send or pause for human on Feishu → finalize → send → audit. **15 graph nodes, 5 conditional edges, 3 capability-isolated MCP servers** (Read · Email Write · Approval Write).
 
 - End-to-end product walkthrough: [`HOW_IT_WORKS.md`](./HOW_IT_WORKS.md)
 - Mermaid diagrams (with v4 sub-graph), state schema, LangSmith tags, Prometheus metrics table: [`docs/architecture.md`](./docs/architecture.md)
@@ -65,18 +65,18 @@ The flow diagram above shows the v3 path top-to-bottom — email in → PII reda
 
 ## Differentiators (vs typical portfolio HITL projects)
 
-1. **Real Gmail IMAP+SMTP**, not mocked — IDLE primary with 30s poll fallback, three threading headers (`In-Reply-To` + `References` + `Subject: Re:`)
-2. **Real Slack with priority-ordered channel routing** — shipped as a 3-channel build (`#support-refunds`, `#support-technical`, `#support-complaints`) where `angry` sentiment overrides intent; `#support-legal`, `#support-enterprise`, `#support-billing` are config-only additions deferred from this build's scope (see `src/slack_router.py` docstring)
-3. **Three custom MCP servers with capability separation** — Read cannot Send, Email Write cannot Slack, Slack Write cannot email; bounded blast radius for prompt injection
+1. **Real Tencent/NetEase enterprise IMAP+SMTP**, not mocked — IDLE primary with 30s poll fallback, three threading headers (`In-Reply-To` + `References` + `Subject: Re:`)
+2. **Real Feishu interactive approval cards with priority-ordered routing** — one test chat is enough for local setup; per-intent Feishu chat IDs remain configurable
+3. **Three custom MCP servers with capability separation** — Read cannot Send, Email Write cannot post approval cards, Approval Write cannot email; bounded blast radius for prompt injection
 4. **Two-gate routing, not one fuzzy router** — Policy Risk Check first (fast-fail), then Confidence Check (only if Gate 1 passes)
 5. **`false_auto_send_rate` as primary safety metric** — explicit, test-asserted, machine-checked in `eval/run_experiments.py`
 6. **App-layer idempotent send** — `EmailSendResult.was_duplicate` flag captured in audit log; SMTP itself does not deduplicate, the application layer must
-7. **Implementation Rules enforced by tests** — `interrupt()` lives alone in `interrupt_gate`; integration test asserts `slack.post_approval_request` is called exactly once after a full pause+resume cycle
-8. **Slack webhook signature verification** — HMAC-SHA256 of `v0:{ts}:{body}`, 5-min replay window, constant-time compare; 7 dedicated tests including body-tamper detection
+7. **Implementation Rules enforced by tests** — `interrupt()` lives alone in `interrupt_gate`; integration test asserts the approval post is called exactly once after a full pause+resume cycle
+8. **Feishu callback verification** — verification token check, quick acknowledgement, and durable graph resume; the Slack HMAC verifier remains available only for the legacy fallback
 9. **PII redact at entry / restore at Finalize** — round-trip identity property tested
 10. **Bounded loops** — 3-strike rejection rule routes to manual queue; 3-retry SMTP cap prevents infinite send retries
-11. **Stale-context revalidation** — on long approval pauses (>15 min), context is re-fetched, hash-compared, and a delta panel is posted to Slack so the approver re-decides with fresh info instead of a silent stale send
-12. **Durable resume across process restart** — kill the server mid-pause, restart it; the SQLite checkpointer survives, the Slack message buttons still resume on the right `slack_message_ts`
+11. **Stale-context revalidation** — on long approval pauses (>15 min), context is re-fetched, hash-compared, and a delta panel is posted to Feishu so the approver re-decides with fresh info instead of a silent stale send
+12. **Durable resume across process restart** — kill the server mid-pause, restart it; the SQLite checkpointer survives, the Feishu card buttons still resume on the right opaque message ID stored in `slack_message_ts`
 13. **Production-readiness layer** — three-tier eval (behavior contracts / empirical with bootstrap CIs / adversarial pass-fail grid), STRIDE threat model with mitigation citing real file paths, GitHub Actions CI (ruff + mypy + pytest + pip-audit + bandit), `/metrics` Prometheus endpoint + **`docker compose up` brings a Grafana dashboard live at `localhost:3000`** (see [`deploy/README.md`](./deploy/README.md)), per-ticket cost telemetry. Methodology + gaps led not buried — see [`eval/METHODOLOGY.md`](./eval/METHODOLOGY.md) and [`docs/threat_model.md`](./docs/threat_model.md)
 
 ## Tech stack
@@ -86,8 +86,8 @@ The flow diagram above shows the v3 path top-to-bottom — email in → PII reda
 | Orchestration | LangGraph + AsyncSqliteSaver checkpointer |
 | Observability | LangSmith (`@traceable` on every LLM call) |
 | LLM | Provider-agnostic via `LLM_PROVIDER` env switch — **OpenRouter / DeepSeek V3** for the curated + 10-ticket Bitext runs (free tier), **OpenAI `gpt-4o-mini`** for the 27-intent breadth eval and the adversarial set (after OpenRouter free credits ran out). Both providers use the same OpenAI-compatible SDK in `src/llm.py`. |
-| Customer I/O | Real Gmail IMAP IDLE (in) + SMTP (out) |
-| Approval channel | Real Slack — Bolt SDK, Socket Mode in dev |
+| Customer I/O | Real Tencent/NetEase enterprise IMAP IDLE (in) + SMTP (out) |
+| Approval channel | Real Feishu — interactive card callback via FastAPI |
 | Tools | Three custom MCP servers via `mcp` Python SDK |
 | Backend | FastAPI + uvicorn |
 | Eval | LangSmith evaluators + 10-ticket hand-curated dataset |
@@ -189,7 +189,7 @@ Raw run artifacts: [`results_curated_v3.json`](./eval/results_curated_v3.json) �
 |---|---|---|
 | `tool_selection_precision` | Researcher tool calls captured in audit log | `eval/results_v4_live.json` audit entries |
 | `critic_disagreement_with_drafter` | Critic verdicts captured in audit log | inspect ticket-level `audit_log` entries with `node="critic_agent"` |
-| `critic_alignment_with_humans` | needs `audit_log` + `(original_draft, final_draft)` pairs from human edits | runs once Slack edit demo data is captured |
+| `critic_alignment_with_humans` | needs `audit_log` + `(original_draft, final_draft)` pairs from human edits | runs once Feishu edit demo data is captured |
 | `loop_iteration_count` | drafter audit entries with `iteration` field | per-ticket inspection |
 | `agent_cost_breakdown` | per-agent cost via LangSmith run-tree | LangSmith UI for now; aggregator is v4.1 work |
 
@@ -210,7 +210,7 @@ Compares `tool_selection_precision` (does the cheaper model still pick the right
 
 See [`demo/v4_critic_intercept.md`](./demo/v4_critic_intercept.md) for the agent-to-agent self-correction demo script.
 
-## Test coverage — 148 / 148
+## Test coverage — 157 / 157
 
 | Suite | Count | What it proves |
 |---|---:|---|
@@ -218,6 +218,8 @@ See [`demo/v4_critic_intercept.md`](./demo/v4_critic_intercept.md) for the agent
 | `test_integration_smoke.py` | 3 | **Async production graph** end-to-end (v3 path): refund-escalates-and-resumes, **async durability across simulated process restart**, FAQ-auto-sends. Implementation Rule 1 machine-verified — pre-interrupt nodes do NOT re-run on resume. |
 | `test_v4_integration_smoke.py` | 3 | **Async production graph** end-to-end (v4 path): Researcher + Drafter↔Critic sub-graphs wire into the parent graph; FAQ auto-sends with all 3 v4 LLM call sites mocked |
 | `test_mcp_subprocess_boot.py` | 1 | All 3 MCP servers spawn cleanly via stdio handshake — catches Python 3.13 / import bugs |
+| `test_config.py` | 3 | Tencent default, NetEase endpoint switch, and explicit endpoint override |
+| `test_feishu_adapter.py` | 6 | Feishu card conversion, receive-ID fallback, callback verification, async resume, and encrypted-payload setup guard |
 | `test_slack_handler.py` | 7 | HMAC signature: valid, replay defense (±5min), body-tamper detection, malformed input |
 | `test_policy.py` | 36 | Two-gate routing — every branch including Gate 2-skipped-when-Gate-1-fails |
 | `test_slack_router.py` | 18 | Priority overrides on 3 channels, `angry` always wins, intent fallthrough |
@@ -232,20 +234,20 @@ See [`demo/v4_critic_intercept.md`](./demo/v4_critic_intercept.md) for the agent
 | **`test_multiagent_evaluators.py`** | **8** | **v4: 5 evaluators handle empty/typical/mismatch inputs** |
 | **`test_metrics.py`** | **12** | **observability: Prometheus singletons, `@timed_node` decorator, `_TEST_RESET` covers labeled + unlabeled metric reset patterns** |
 
-(Row counts are approximate — `pytest --collect-only` is the authoritative source. Total = 148 verified.)
+(Row counts are approximate — `pytest --collect-only` is the authoritative source. Total = 157 verified.)
 
 ## Failure modes handled (per `architecture.md`)
 
 | Failure | Behavior |
 |---|---|
-| Server crashes mid-pause | SQLite checkpoint at last super-step. On restart, Slack buttons still resume on the right `slack_message_ts`. |
-| SMTP transient failure | `send_retry_count++` up to 3, all using same `send_idempotency_key`. After 3 → `failed_manual` → manual queue + Slack notice. |
-| Customer follow-up mid-pause | `ticket_external_status = superseded`, old draft discarded, Slack updated. |
-| Prompt injection in inbound email | MCP READ server has zero send capability; injection during retrieval has no path to email or Slack. Eval ticket T10 verifies. |
-| Slack signature mismatch / replay | 401 + log security event; 7 dedicated tests. |
+| Server crashes mid-pause | SQLite checkpoint at last super-step. On restart, Feishu buttons still resume on the right compatibility message ID (`slack_message_ts`). |
+| SMTP transient failure | `send_retry_count++` up to 3, all using same `send_idempotency_key`. After 3 → `failed_manual` → manual queue + Feishu notice. |
+| Customer follow-up mid-pause | `ticket_external_status = superseded`, old draft discarded, Feishu card updated. |
+| Prompt injection in inbound email | MCP READ server has zero send capability; injection during retrieval has no path to email or Feishu. Eval ticket T10 verifies. |
+| Feishu callback token mismatch | 401 + log security event; callback verification tests cover it. |
 | 3 rejections | Auto-routes to manual queue, customer notified. |
 | LangSmith down | Agent continues; traces buffer locally. Observability outage doesn't break flow. |
-| Long approval delay (>15 min) | Context revalidated, delta posted to Slack, approver re-decides. |
+| Long approval delay (>15 min) | Context revalidated, delta posted to Feishu, approver re-decides. |
 
 ## Run locally
 
@@ -259,10 +261,10 @@ cp .env.example .env
 #   OPENROUTER_API_KEY     (https://openrouter.ai)         needed when LLM_PROVIDER=openrouter
 #   OPENAI_API_KEY         (https://platform.openai.com)   needed when LLM_PROVIDER=openai
 #   LANGSMITH_API_KEY      (https://smith.langchain.com)
-#   GMAIL_USER + GMAIL_APP_PASSWORD   (Gmail App Password, 2FA required)
-#   SLACK_BOT_TOKEN + SLACK_SIGNING_SECRET + SLACK_APP_TOKEN
-#                          (Slack app with Socket Mode + Interactivity enabled,
-#                           bot invited to all 3 channels)
+#   EMAIL_USER + EMAIL_APP_PASSWORD   (Tencent/NetEase client authorization code)
+#   FEISHU_APP_ID + FEISHU_APP_SECRET + FEISHU_RECEIVE_ID
+#                          (self-built app in a Feishu test enterprise,
+#                           bot added to the target test chat)
 ```
 
 ### 1. Install + run tests
@@ -270,7 +272,7 @@ cp .env.example .env
 ```bash
 pip install -r requirements.txt          # runtime deps only
 pip install -e .[dev]                    # adds pytest/ruff/mypy/bandit/pip-audit
-pytest                                   # 148 / 148 should pass (v3+v4)
+pytest                                   # 157 / 157 should pass (v3+v4)
 python -m eval.run_experiments --no-llm  # routing eval (no creds needed)
 ```
 
@@ -278,9 +280,9 @@ python -m eval.run_experiments --no-llm  # routing eval (no creds needed)
 
 ```bash
 python -m src.server
-# IMAP listener spins up on GMAIL_USER inbox
-# Slack Socket Mode connects automatically
-# Send a test email to GMAIL_USER → watch the graph in LangSmith
+# IMAP listener spins up on EMAIL_USER inbox
+# Feishu callbacks are served at POST /feishu/events
+# Send a test email to EMAIL_USER → approve the card in the test chat
 ```
 
 ### 3. Run the full eval (with LLM)
@@ -299,10 +301,10 @@ LLM_PROVIDER=openai python -m eval.run_experiments --dataset bitext27 --multiage
 
 ```
 src/      state.py  graph.py  graph_runner.py  nodes.py  llm.py  metrics.py
-          config.py  policy.py  slack_router.py  pii.py
+          config.py  policy.py  slack_router.py  feishu_handler.py  pii.py
           email_listener.py  slack_handler.py  mcp_client.py  server.py
 src/agents/  base.py  researcher.py  drafter.py  critic.py        # v4 multi-agent
-mcp_server/  support_read.py  support_email_write.py  support_slack_write.py
+mcp_server/  support_read.py  support_email_write.py  support_feishu_write.py
 data/     acme_policies.md  customers_seed.json
           bitext_eval_10.csv  bitext_eval_27.csv
 data/prompts/  classify_system.md  drafter_system.md  critic_system.md
@@ -314,12 +316,12 @@ eval/     run_experiments.py  evaluators.py  dataset.py  bitext_dataset.py
           results_curated_{v3,v4}.{md,json}  results_bitext_{v3,v4}.{md,json}
           results_bitext27_{v3,v4}.{md,json}  results_adversarial_{v3,v4}.{md,json}
           results_v3_live.{md,json}  results_v4_live.{md,json}  results_v3_offline.{md,json}
-tests/    test_policy.py  test_slack_router.py  test_pii.py  test_resume.py
+tests/    test_policy.py  test_slack_router.py  test_feishu_adapter.py  test_pii.py  test_resume.py
           test_slack_handler.py  test_integration_smoke.py  test_mcp_subprocess_boot.py
           test_email_idempotency.py  test_critic_invariants.py  test_v4_integration.py
           test_v4_integration_smoke.py  test_security_email_handling.py
           test_metrics.py  test_drafter_critic_loop.py
-          (148 total across both flag modes)
+          (157 total across both flag modes)
 docs/     architecture.md  threat_model.md  v4_multiagent.md
 deploy/   prometheus.yml  grafana/  README.md                   # docker-compose observability stack
 demo/     v4_critic_intercept.md                                # demo scripts (videos TBD)
@@ -330,8 +332,8 @@ scripts/  preflight_smoke.py                                    # credential pre
 ## What's deferred (honest list)
 
 - **v1 / v2 ablations** — would need separate graph variants run on the same dataset; cut to fit the build window and avoid any temptation to invent numbers
-- **Demo videos** — durable-execution kill-restart, approve-with-edits, SLA timeout. Scripts ready (see [`spec.md`](./spec.md) §13). Secrets are landed and the live docker stack has been smoke-tested end-to-end (Gmail in → Slack approval → Gmail reply, including a real kill-mid-interrupt + resume cycle); recording is the user's last manual step
-- **6 Slack channels → 3** — `#support-legal`, `#support-enterprise`, `#support-billing` are config additions to `slack_router.py`, not architecture changes
+- **Demo videos** — durable-execution kill-restart, approve-with-edits, SLA timeout. Scripts are ready (see [`spec.md`](./spec.md) §13); recording the Tencent/NetEase enterprise mailbox → Feishu approval → enterprise-mail reply path remains a manual step
+- **Additional Feishu groups** — per-intent Feishu chat IDs are configuration additions to `slack_router.py`, not architecture changes
 - **External-benchmark eval (Bitext)** — a real 10-ticket Bitext eval now exists: 10 of Bitext's SaaS-adjacent intents, run live through both v3 and v4 (`eval/bitext_dataset.py`, data frozen in `data/bitext_eval_10.csv`, full write-up in [`eval/bitext_findings.md`](./eval/bitext_findings.md)). It confirmed v3≈v4 and showed intent accuracy drops to 50–60% on real external text vs ~70% on the hand-curated set (escalation precision stayed at 90–100% on both — different metric, different story). Still partial — 10 of Bitext's 27 intents, n=10; the 27-intent breadth eval that exposed v3's dangerous false-auto-sends (see `eval/bitext27_findings.md`) is the next step beyond this row
 - **Postgres production checkpointer** — SQLite is sufficient for single-writer demo; AsyncPostgresSaver is a one-line swap
 - **Webhook-based inbound mail** — IMAP IDLE works for demo; SES / SendGrid Parse / Postmark for production scale
