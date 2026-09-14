@@ -1,5 +1,5 @@
 """MCP Client Router — single interface routing calls to the three capability-isolated servers.
-
+MCP 客户端路由器 通过单一接口，将不同的工具调用路由到三个独立运行的、按能力隔离的 MCP 服务器进程
 Implements spec.md §8 client side; see architecture.md "How this maps to the codebase".
 
 Provides:
@@ -217,7 +217,7 @@ class _ReadClient:
     """Thin async wrapper over the support_read MCP server session."""
 
     def __init__(self, session: ClientSession) -> None:
-        self._session = session
+        self._session = session # 绑定到READ子进程的会话
 
     async def get_crm_profile(self, customer_email: str) -> CRMProfile:
         """Fetch CRM profile for *customer_email*. Returns CRMProfile (may be stub)."""
@@ -320,6 +320,7 @@ class MCPClientRouter:
     """
 
     def __init__(self) -> None:
+        #路由器通过三个独立属性分别持有不同服务的客户端实例
         self._stack: AsyncExitStack | None = None
         self.read: _ReadClient | None = None
         self.email: _EmailClient | None = None
@@ -331,7 +332,7 @@ class MCPClientRouter:
 
         python = sys.executable  # same interpreter that's running the agent
 
-        # --- READ server ---
+        # --- READ server --- # 启动READ子进程
         read_session = await self._stack.enter_async_context(
             _make_session(python, str(_READ_SERVER))
         )

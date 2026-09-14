@@ -297,7 +297,8 @@ def check_app_token(app_token: str) -> bool:
     print("\n[6/6] apps.connections.open — App-Level Token (Socket Mode)")
     # `apps.connections.open` requires `app_token` as an explicit kwarg
     # in slack-sdk; the WebClient instance token is ignored for this call.
-    socket_client = WebClient()
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or None
+    socket_client = WebClient(proxy=proxy)
     try:
         resp = socket_client.apps_connections_open(app_token=app_token)
     except SlackApiError as exc:
@@ -334,7 +335,12 @@ def main() -> int:
     if env is None:
         return 1
 
-    bot = WebClient(token=env["SLACK_BOT_TOKEN"])
+    # slack_sdk's WebClient ignores system proxy env vars by default and
+    # builds its own urllib opener — in networks where api.slack.com is
+    # blocked (e.g. GFW), pass the proxy explicitly or every call fails with
+    # ssl.SSLEOFError. Read HTTPS_PROXY/HTTP_PROXY and hand it to the client.
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or None
+    bot = WebClient(token=env["SLACK_BOT_TOKEN"], proxy=proxy)
 
     auth_ok, _ = check_auth(bot)
     if not auth_ok:

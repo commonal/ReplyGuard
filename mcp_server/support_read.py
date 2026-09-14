@@ -162,7 +162,7 @@ mcp = FastMCP(
     ),
 )
 
-
+#装饰器，把函数登记进工具表，函数签名 + docstring 就是工具的 schema,客户端靠它知道怎么调
 @mcp.tool()
 def get_crm_profile(customer_email: str) -> dict[str, Any]:
     """Return Salesforce-shape CRM profile for *customer_email*.
@@ -281,4 +281,4 @@ def get_kb_article(query: str) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    mcp.run(transport="stdio") #脚本启动后阻塞在 stdin 上等 JSON-RPC 请求，没请求就静静挂着

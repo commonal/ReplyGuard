@@ -191,7 +191,13 @@ def _build_message(
 
 
 async def _smtp_send(msg: EmailMessage) -> str:
-    """Send *msg* via aiosmtplib and return the sent Message-ID."""
+    """Send *msg* via aiosmtplib and return the sent Message-ID.
+
+    In networks where smtp.gmail.com is blocked (e.g. GFW), aiosmtplib's
+    default direct connect fails with an SSL EOF because it does NOT read
+    system proxy env vars. When HTTPS_PROXY/HTTP_PROXY is set, we tunnel
+    through it via HTTP CONNECT and pass the raw socket to aiosmtplib.
+    """
     import aiosmtplib  # local import — zero Slack code in module namespace
 
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
@@ -200,14 +206,32 @@ async def _smtp_send(msg: EmailMessage) -> str:
             "See .env.example."
         )
 
-    await aiosmtplib.send(
-        msg,
-        hostname=GMAIL_SMTP_HOST,
-        port=GMAIL_SMTP_PORT,
-        username=GMAIL_USER,
-        password=GMAIL_APP_PASSWORD,
-        start_tls=True,
-    )
+    # Opt-in proxy tunnel (no-op when HTTPS_PROXY is unset → direct connect).
+    try:
+        from src.proxy_tunnel import smtp_tunnel_socket
+        sock = smtp_tunnel_socket(GMAIL_SMTP_HOST, dest_port=465)
+        # Tunnel is a plain TCP pipe to Gmail:443-equivalent; aiosmtplib does
+        # the full TLS handshake itself via use_tls.
+        await aiosmtplib.send(
+            msg,
+            hostname=GMAIL_SMTP_HOST,
+            sock=sock,
+            username=GMAIL_USER,
+            password=GMAIL_APP_PASSWORD,
+            use_tls=True,
+            validate_certs=True,
+        )
+    except RuntimeError:
+        # No proxy configured → fall back to the configured direct host/port
+        # (default smtp.gmail.com:587 with STARTTLS).
+        await aiosmtplib.send(
+            msg,
+            hostname=GMAIL_SMTP_HOST,
+            port=GMAIL_SMTP_PORT,
+            username=GMAIL_USER,
+            password=GMAIL_APP_PASSWORD,
+            start_tls=True,
+        )
     # Message-ID was set before send; return it as the stable sent_message_id
     return str(msg["Message-ID"])
 

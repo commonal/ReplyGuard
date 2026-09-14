@@ -249,3 +249,6 @@ __marimo__/
 
 # Demo recording script — local-only, never publish
 demo/recording_script.md
+
+# Codex/Reasonix local task metadata and attachments — never publish
+.reasonix/

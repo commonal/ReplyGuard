@@ -48,7 +48,7 @@ _PRICING: dict[str, tuple[float, float]] = {
     # since the paid v4-flash row was unverified against any OpenRouter
     # pricing page (ultrareview bug_004). Unknown models fall through to
     # (0.0, 0.0) anyway so cost telemetry stays sane regardless.
-    "deepseek/deepseek-v4-flash:free": (0.0, 0.0),
+    "deepseek/deepseek-v4-flash:free": (0.002, 0.004),
     "anthropic/claude-3.5-haiku": (0.0008, 0.004),
     "meta-llama/llama-3.3-70b-instruct:free": (0.0, 0.0),
 }
@@ -59,7 +59,7 @@ def _compute_cost(model: str, prompt_tokens: int, completion_tokens: int) -> flo
     in_per_1k, out_per_1k = _PRICING.get(model, (0.0, 0.0))
     return (prompt_tokens / 1000.0) * in_per_1k + (completion_tokens / 1000.0) * out_per_1k
 
-
+#**字典原地修改在 LangGraph 跨 step 可以保留；普通变量赋值不行**。
 def track_llm_usage(
     state: AgentState | None,
     label: str,
@@ -103,6 +103,10 @@ def track_llm_usage(
     if state is None:
         return
     cost = _compute_cost(model, prompt_tokens, completion_tokens)
+
+    ##
+#     如果你在 node 内部做：state ["some_scalar"] = 123（直接修改顶层标量键），这个修改不会带到下一个 step。框架会丢弃你原地修改的顶层 key，只采用 node 返回字典里的值。
+# 但是！字典 / 列表是引用对象：state ["cost_breakdown"] 拿到的是嵌套 dict 的引用。你对这个嵌套字典内部做原地修改，对象本身没变，修改会被保留，跨 step 存活。
     # Dict mutations survive LangGraph's super-step merge (the dict object is
     # shared by reference). Scalar reassignments don't — they get reverted when
     # the framework reconstructs state from each node's partial-return dict.
@@ -117,7 +121,7 @@ def track_llm_usage(
 # Client + config
 # ---------------------------------------------------------------------------
 
-
+#**懒加载设计**：只有调用`_client()`的时候才实例化 AsyncOpenAI。模块导入阶段不会初始化客户端。
 def _client() -> AsyncOpenAI:
     """Build an OpenAI-shaped client.
 
@@ -160,9 +164,9 @@ class DraftResult(BaseModel):
     draft: str
     draft_confidence: float = Field(ge=0.0, le=1.0)
 
-
+#：长暂停恢复工单时，拿旧快照和新拉取的客户信息做对比；如果关键信息发生变化，Agent 要重新走部分流程，避免基于过期知识库 / 客户信息生成回复。
 class ContextDelta(BaseModel):
-    has_changes: bool
+    has_changes: bool    
     summary: str = ""
     changed_fields: list[str] = Field(default_factory=list)
 
@@ -279,7 +283,7 @@ def _ls_metadata(state: dict[str, Any], extra: dict[str, Any] | None = None) -> 
         md.update(extra)
     return md
 
-
+#llm请求
 async def _chat_json(
     messages: list[dict[str, str]],
     *,
@@ -314,7 +318,7 @@ async def _chat_json(
         LLM_LATENCY.labels(call=label).observe(time.monotonic() - start)
     track_llm_usage(state, label, model, getattr(resp, "usage", None))
     content = (resp.choices[0].message.content or "").strip()
-    parsed: dict[str, Any] = json.loads(content)
+    parsed: dict[str, Any] = json.loads(content) #返回原始 dict
     return parsed
 
 
@@ -323,6 +327,8 @@ async def classify_intent(
     customer_message_redacted: str,
     state: AgentState | None = None,
 ) -> ClassificationResult:
+    #意图识别
+    #脱敏后的客户消息，可选传入 AgentState 用于统计消耗
     data = await _chat_json(
         [
             {"role": "system", "content": CLASSIFY_SYSTEM},
@@ -331,7 +337,7 @@ async def classify_intent(
         label="classify",
         state=state,
     )
-    return ClassificationResult.model_validate(data)
+    return ClassificationResult.model_validate(data) #业务函数再用`model_validate()`做 Pydantic 校验
 
 
 @traceable(run_type="llm", name="draft_response")
@@ -344,6 +350,9 @@ async def draft_response(
     rejection_reason: str | None = None,
     state: AgentState | None = None,
 ) -> DraftResult:
+    #写回复信息，这里除了用户的信息，还有在人工驳回的时候重写相关内容
+    #入参：脱敏客户消息、intent、客户档案、历史对话、政策片段、可选`rejection_reason`（人工驳回理由）。
+# 把全部业务数据打包为 json 字符串放到 user content。
     user_block: dict[str, Any] = {
         "customer_message": customer_message_redacted,
         "intent": intent,
@@ -386,6 +395,13 @@ async def summarize_context_changes(
     )
     return ContextDelta.model_validate(data)
 
+
+"""
+### 通配导入 `from llm_client import *`
+
+- 如果定义了 `__all__`：只会导入列表里面写的这些类、函数。
+- 没写在 `__all__` 里的名字，就算是顶层全局，`import *` 拿不到
+"""
 
 __all__ = [
     "ClassificationResult",

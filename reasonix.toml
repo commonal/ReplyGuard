@@ -1,0 +1,2 @@
+[permissions]
+allow = ["Bash=(Get-Command msedge -ErrorAction SilentlyContinue).Source; Test-Path \"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\"; Test-Path \"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe\"; Get-Command playwright -ErrorAction SilentlyContinue; python -c \"import playwright; print('playwright ok')\" 2>&1"]

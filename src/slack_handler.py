@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import time
 from typing import Any
 
@@ -41,9 +42,15 @@ def get_app() -> AsyncApp:
     global _app
     if _app is None:
         settings.require_secrets("slack_bot_token", "slack_signing_secret")
+        # slack-bolt's AsyncApp ignores system proxy env vars, so in networks
+        # where api.slack.com / wss is blocked (e.g. GFW) the Socket Mode
+        # websocket and Web API calls fail with ssl.SSLEOFError. Pass the proxy
+        # explicitly when one is configured.
+        proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or None
         _app = AsyncApp(
             token=settings.slack_bot_token,
             signing_secret=settings.slack_signing_secret,
+            proxy=proxy,
         )
         _register_handlers(_app)
     return _app
@@ -297,7 +304,8 @@ async def _resume_graph(thread_id: str, resume_value: dict[str, Any]) -> None:
 async def run_socket_mode() -> None:
     settings.require_secrets("slack_bot_token", "slack_app_token", "slack_signing_secret")
     app = get_app()
-    handler = AsyncSocketModeHandler(app, settings.slack_app_token)
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or None
+    handler = AsyncSocketModeHandler(app, settings.slack_app_token, proxy=proxy)
     await handler.start_async()  # type: ignore[no-untyped-call]
 
 

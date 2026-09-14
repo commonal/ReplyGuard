@@ -32,6 +32,7 @@ from typing import Any
 
 from langgraph.types import interrupt
 
+#llm调用函数
 from src.llm import (
     classify_intent,
     draft_response,
@@ -81,9 +82,9 @@ def _now_iso() -> str:
 def _hash_context(payload: Any) -> str:
     """Stable hash for the stale-context check during long approval pauses."""
     blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
-    return hashlib.sha256(blob).hexdigest()
+    return hashlib.sha256(blob).hexdigest() #对客户资料、历史工单、知识库做 sha256 哈希
 
-
+#生成一条审计日志记录，记录节点、ticket_id、自定义字段。
 def _audit(state: AgentState, node: str, **fields: Any) -> dict[str, Any]:
     """Build an append-only audit log entry. Caller merges it into the state
     update by spreading over `audit_log` from the existing state."""
@@ -97,7 +98,7 @@ def _audit(state: AgentState, node: str, **fields: Any) -> dict[str, Any]:
 
 def _client() -> Any:
     """Get the live, long-lived MCPClientRouter from graph_runner.
-
+    获取全局单例`MCPClientRouter`
     The router is opened once at service startup and torn down at shutdown
     (see `src/graph_runner.startup` / `shutdown_async`). Callers are async
     nodes — they `await router.read.x()` etc. directly.
@@ -111,7 +112,7 @@ def _build_approval_blocks(state: AgentState, kb_quote: str) -> list[dict[str, A
     """Build the Block Kit message body for the Slack approval post.
 
     Spec source: spec.md §6 Slack Notification + §7 HITL Design.
-
+    构造 Slack BlockKit 消息。人工审批弹窗，包含工单信息、风险标记、知识库依据、AI 草稿回复、三个按钮：`Approve/Edit/Reject`。
     The message contains:
       - Ticket header (id + intent + customer email)
       - "Why I paused" panel — risk flags + confidence + policy match
@@ -142,7 +143,7 @@ def _build_approval_blocks(state: AgentState, kb_quote: str) -> list[dict[str, A
     # Recipient address shown to the human reviewer so they can spot
     # spoofed-From attempts before approving. Read from the trustworthy
     # envelope-from in the pii vault, NOT from the spoofable From: header.
-    recipient = _customer_email_from_audit(state)
+    recipient = _customer_email_from_audit(state) #安全获取客户邮箱，不从邮件 header 读取（header 可以伪造），从 PII 解密层获取可信信封发件人
 
     blocks: list[dict[str, Any]] = [
         {
@@ -219,7 +220,7 @@ def _build_approval_blocks(state: AgentState, kb_quote: str) -> list[dict[str, A
             },
         ]
     )
-    return blocks
+    return blocks  #构造出一个信息
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +252,7 @@ def pii_redact_node(state: AgentState) -> dict[str, Any]:
 # 2. Classify Intent
 # ---------------------------------------------------------------------------
 
-
+#@timed_node埋点监控节点耗时指标
 @timed_node("classify_intent")
 async def classify_intent_node(state: AgentState) -> dict[str, Any]:
     result = await classify_intent(state["customer_message"], state=state)
@@ -275,19 +276,26 @@ async def classify_intent_node(state: AgentState) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 3. Enrich Context (MCP READ — three calls in parallel where possible)
+# 3. Enrich Context (MCP READ — three calls in parallel where possible) 丰富AI客服系统的上下文信息。
 # ---------------------------------------------------------------------------
 
-
+#性能监控装饰器，会记录该函数执行时间
 @timed_node("enrich_context")
 async def enrich_context_node(state: AgentState) -> dict[str, Any]:
     client = _client()
-    customer_email = _customer_email_from_audit(state)
+    customer_email = _customer_email_from_audit(state) #安全获取客户邮箱
 
     profile = await client.read.get_crm_profile(customer_email)  # CRMProfile
     history = await client.read.get_customer_history(customer_email)  # list[HistoryEntry]
     kb = await client.read.get_kb_article(state["customer_message"])  # KBResult
-
+    """
+    # 可改为并行执行提升性能
+    profile, history, kb = await asyncio.gather(
+        client.read.get_crm_profile(customer_email),
+        client.read.get_customer_history(customer_email),
+        client.read.get_kb_article(state["customer_message"])
+    )
+    """
     history_dicts = [h.model_dump() for h in history]
     context_payload = {
         "profile": profile.model_dump(),
@@ -329,7 +337,26 @@ def _customer_email_from_audit(state: AgentState) -> str:
 # ---------------------------------------------------------------------------
 # 4. Draft Response
 # ---------------------------------------------------------------------------
+def _last_profile_from_audit(state: AgentState) -> dict[str, Any]:
+    # Caller may not have a profile in state yet — return empty rather than
+    # crashing the LLM call.
+    return {"customer_tier": state.get("customer_tier", "Free")}
 
+def _last_kb_quotes_from_audit(state: AgentState) -> list[str]:
+    """Return the verbatim KB quote that Enrich Context attached. Stays in the
+    audit log so the top-level state stays slim, but is needed for both the
+    Draft prompt and the Slack approval message."""
+    quotes: list[str] = []
+    for entry in reversed(state.get("audit_log") or []):
+        if entry.get("node") == "enrich_context":
+            q = entry.get("kb_quote")
+            if q:
+                quotes.append(q)
+            break
+    if not quotes:
+        for m in state.get("policy_matches") or []:
+            quotes.append(f"Policy {m}")
+    return quotes
 
 @timed_node("draft_response")
 async def draft_response_node(state: AgentState) -> dict[str, Any]:
@@ -362,27 +389,9 @@ async def draft_response_node(state: AgentState) -> dict[str, Any]:
     }
 
 
-def _last_profile_from_audit(state: AgentState) -> dict[str, Any]:
-    # Caller may not have a profile in state yet — return empty rather than
-    # crashing the LLM call.
-    return {"customer_tier": state.get("customer_tier", "Free")}
 
 
-def _last_kb_quotes_from_audit(state: AgentState) -> list[str]:
-    """Return the verbatim KB quote that Enrich Context attached. Stays in the
-    audit log so the top-level state stays slim, but is needed for both the
-    Draft prompt and the Slack approval message."""
-    quotes: list[str] = []
-    for entry in reversed(state.get("audit_log") or []):
-        if entry.get("node") == "enrich_context":
-            q = entry.get("kb_quote")
-            if q:
-                quotes.append(q)
-            break
-    if not quotes:
-        for m in state.get("policy_matches") or []:
-            quotes.append(f"Policy {m}")
-    return quotes
+
 
 
 # ---------------------------------------------------------------------------
@@ -524,23 +533,23 @@ def route_after_action(state: AgentState) -> str:
     """
     status = (state.get("approval_status") or "").lower()
     if status == "reject":
-        return "reject_increment"
+        return "reject_increment" #驳回计数节点
     threshold_min = int(os.environ.get("REVALIDATE_THRESHOLD_MIN", "15"))
-    ts = state.get("approval_timestamp")
-    notif_ts = None
+    ts = state.get("approval_timestamp")   #用户点击的时间点
+    notif_ts = None 
     for e in state.get("audit_log") or []:
-        if e.get("node") == "slack_notification":
-            notif_ts = e.get("ts")
+        if e.get("node") == "slack_notification": 
+            notif_ts = e.get("ts") #slack发送消息的时间点
             break
-    if not (ts and notif_ts):
+    if not (ts and notif_ts): # 如果找不到时间戳，说明是测试环境或简化流程，但这是不安全的
         return "finalize"
     try:
         delta_min = (
             datetime.fromisoformat(ts) - datetime.fromisoformat(notif_ts)
-        ).total_seconds() / 60.0
+        ).total_seconds() / 60.0   #计算从 Slack 通知发出到人工审批的时间差
     except ValueError:
         return "finalize"
-    return "revalidate_context" if delta_min > threshold_min else "finalize"
+    return "revalidate_context" if delta_min > threshold_min else "finalize" 
 
 
 def route_after_reject(state: AgentState) -> str:
@@ -592,7 +601,7 @@ async def revalidate_context_node(state: AgentState) -> dict[str, Any]:
         + [_audit(state, "revalidate_context", changed=new_hash != state.get("context_hash", ""))],
     }
 
-
+#路由函数，如果验证发现改变了，进入总结变化节点，如果没有发送变化就进入与发送节点
 def route_after_revalidate(state: AgentState) -> str:
     return "summarize_changes" if state.get("_revalidate_changed") else "finalize"
 
@@ -625,6 +634,7 @@ async def summarize_changes_node(state: AgentState) -> dict[str, Any]:
             },
             *_build_approval_blocks(state, kb_quote=kb_quotes[0] if kb_quotes else ""),
         ]
+        ## 更新Slack消息（替换原有内容）
         await client.slack.update_message(
             SlackUpdateParams(
                 channel=state["slack_channel"],
@@ -634,7 +644,7 @@ async def summarize_changes_node(state: AgentState) -> dict[str, Any]:
             )
         )
     return {
-        # Reset to pending so the graph re-interrupts
+        # Reset to pending so the graph re-interrupts  重置审批状态
         "approval_status": "pending",
         "audit_log": (state.get("audit_log") or [])
         + [
@@ -649,7 +659,7 @@ async def summarize_changes_node(state: AgentState) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 12. Finalize Action (PII restore + payload assembly — pure, no I/O)
+# 12. Finalize Action (PII restore + payload assembly — pure, no I/O) PII 恢复（发送邮件前）
 # ---------------------------------------------------------------------------
 
 
@@ -687,7 +697,7 @@ def finalize_action_node(state: AgentState) -> dict[str, Any]:
 
 @timed_node("send_email")
 async def send_email_node(state: AgentState) -> dict[str, Any]:
-    # App-layer idempotency #1: state already says it's sent.
+    # App-layer idempotency #1: state already says it's sent. 幂等检查 1：state 已有`sent_message_id`，直接跳过发送
     if state.get("sent_message_id"):
         return {
             "send_status": "sent",
@@ -699,7 +709,7 @@ async def send_email_node(state: AgentState) -> dict[str, Any]:
     # the sentinel value means we could not derive a trustworthy address
     # from the SMTP envelope or the redacted token map. Refusing to send
     # beats sending to a stranger, AND skipping the client lookup keeps
-    # this branch testable without a live MCP router subprocess.
+    # this branch testable without a live MCP router subprocess. 安全校验：解析不出可信收件人邮箱，直接进入`failed_manual`，绝不乱发邮件
     customer_email = _customer_email_from_audit(state)
     if customer_email in ("unknown@example.com", "", None):
         return {
@@ -721,7 +731,7 @@ async def send_email_node(state: AgentState) -> dict[str, Any]:
 
     try:
         # App-layer idempotency #2: the MCP server's SQLite idem-store will
-        # short-circuit on duplicate idempotency_key (was_duplicate=True).
+        # short-circuit on duplicate idempotency_key (was_duplicate=True). MCP 调用发送邮件，携带`idempotency_key`（幂等键，MCP 服务层二次防重复发送）
         result = await client.email.send(
             EmailSendParams(
                 to=customer_email,
@@ -747,6 +757,7 @@ async def send_email_node(state: AgentState) -> dict[str, Any]:
                 )
             ],
         }
+    #异常处理：发送失败，累加`send_retry_count`，`MAX_SEND_RETRIES=3`次重试；超过最大重试次数进入人工队列。
     except Exception as exc:
         new_count = state.get("send_retry_count", 0) + 1
         max_retries = int(os.environ.get("MAX_SEND_RETRIES", "3"))
@@ -777,7 +788,7 @@ def _subject_from_state(state: AgentState) -> str:
             return sub
     return "your support request"
 
-
+#条件边
 def route_after_send(state: AgentState) -> str:
     if state.get("send_status") == "sent":
         return "audit_log"
@@ -787,7 +798,7 @@ def route_after_send(state: AgentState) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 14. Audit Log (terminal append) + Manual Queue (terminal escalate)
+# 14. Audit Log (terminal append) + Manual Queue (terminal escalate) 成功工单终端节点,收尾清理以及通知
 # ---------------------------------------------------------------------------
 
 
@@ -801,6 +812,7 @@ async def audit_log_node(state: AgentState) -> dict[str, Any]:
     if state.get("slack_message_ts") and state.get("slack_channel"):
         try:
             client = _client()
+            #将 Slack 审批消息里的按钮（批准/编辑/拒绝）替换掉
             text = f"📤 Reply sent · approver: {state.get('approver_id') or 'auto-send'}"
             await client.slack.update_message(
                 SlackUpdateParams(
@@ -819,18 +831,18 @@ async def audit_log_node(state: AgentState) -> dict[str, Any]:
             # Best-effort: a Slack outage / network blip / serialization error
             # must NOT block the audit close — the ticket is already sent.
             # Log so it's visible in LangSmith, but swallow.
-            log.warning("audit_log Slack update failed (non-fatal): %s", exc)
+            log.warning("audit_log Slack update failed (non-fatal): %s", exc) #尽最大努力（Best-Effort）" 模式
 
     ticket_id = state.get("ticket_id", "")
     if ticket_id:
-        _pii_clear_ticket(ticket_id)
+        _pii_clear_ticket(ticket_id)  #清除 PII（个人隐私数据）缓存
 
     return {
         "final_state": state.get("final_state") or "sent",
-        "audit_log": (state.get("audit_log") or []) + [_audit(state, "audit_close")],
+        "audit_log": (state.get("audit_log") or []) + [_audit(state, "audit_close")], #写入最终审计日志
     }
 
-
+#失败终端节点
 @timed_node("manual_queue")
 async def manual_queue_node(state: AgentState) -> dict[str, Any]:
     max_rej = int(os.environ.get("MAX_HUMAN_REJECTIONS", "3"))
@@ -881,7 +893,7 @@ async def manual_queue_node(state: AgentState) -> dict[str, Any]:
 # 15. Auto-send fast path — when both gates pass and intent is in safe set,
 #     skip Slack notification entirely. Conditional edge selector lives at
 #     the post-confidence-check fork; this node here just stamps the audit
-#     entry showing why we auto-sent (for transparency in the trace).
+#     entry showing why we auto-sent (for transparency in the trace). 自动发送快车道标记节点
 # ---------------------------------------------------------------------------
 
 

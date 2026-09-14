@@ -31,11 +31,11 @@ from src.state import AgentState
 # src/nodes.py. Keeping them here for now keeps graph.py runnable on its own
 # so the resume test can exercise the contract before any business logic ships.
 # ---------------------------------------------------------------------------
-
+#三个测试节点
 
 def pre_interrupt_node(state: AgentState) -> dict[str, Any]:
     """Stand-in for the real Slack Notification node.
-
+     # 模拟发送Slack通知，写入状态
     Writes a marker to state so the resume test can verify side effects from
     BEFORE the interrupt are preserved across a process restart.
     """
@@ -48,7 +48,7 @@ def pre_interrupt_node(state: AgentState) -> dict[str, Any]:
 
 def interrupt_gate(state: AgentState) -> dict[str, Any]:
     """Dedicated interrupt node — Implementation Rule 1.
-
+    # 核心中断点 - 等待人工操作
     NOTHING ELSE may live in this node. No DB writes, no MCP calls, no audit
     log entries, no try/except. On resume the node restarts from the top, so
     any pre-interrupt side effects would duplicate.
@@ -66,7 +66,7 @@ def interrupt_gate(state: AgentState) -> dict[str, Any]:
 
 
 def post_resume_node(state: AgentState) -> dict[str, Any]:
-    """Stand-in for Finalize → Send → Audit. Writes a terminal marker."""
+    """Stand-in for Finalize → Send → Audit. Writes a terminal marker.# 恢复后执行，根据人工决策处理"""
     approval = state.get("approval_status", "")
     return {
         "final_state": "sent" if approval == "approve" else f"completed_{approval}",
@@ -112,7 +112,7 @@ def sqlite_checkpointer(db_path: str) -> Iterator[SqliteSaver]:
 
 def compile_with_checkpointer(checkpointer: SqliteSaver) -> Any:
     """Compile the SKELETON graph (Phase 1 contract test). Use
-    `compile_full_with_checkpointer` for the production graph."""
+    `compile_full_with_checkpointer` for the production graph. 证明interrupt()中断后，状态能被持久化"""
     return build_graph_builder().compile(checkpointer=checkpointer)
 
 
@@ -198,6 +198,7 @@ def build_full_graph_builder() -> StateGraph[AgentState]:
     _MULTIAGENT = _os.environ.get("MULTIAGENT_ENABLED", "1") == "1"
 
     # --- nodes ---
+    ## 数据准备阶段
     builder.add_node("pii_redact", pii_redact_node)
     builder.add_node("classify_intent", classify_intent_node)
     if _MULTIAGENT:
@@ -208,10 +209,16 @@ def build_full_graph_builder() -> StateGraph[AgentState]:
     else:
         builder.add_node("enrich_context", enrich_context_node)
         builder.add_node("draft_response", draft_response_node)
+
+    # 决策路由阶段
     builder.add_node("auto_send_marker", auto_send_marker_node)
     builder.add_node("channel_router", channel_router_node)
+
+    # 人工介入阶段
     builder.add_node("slack_notification", slack_notification_node)
     builder.add_node("interrupt_gate", full_interrupt_gate)
+
+    # 后处理阶段
     builder.add_node("reject_increment", reject_increment_node)
     builder.add_node("revalidate_context", revalidate_context_node)
     builder.add_node("summarize_changes", summarize_changes_node)
@@ -228,10 +235,10 @@ def build_full_graph_builder() -> StateGraph[AgentState]:
 
     # --- two-gate routing (combined into one conditional edge) ---
     builder.add_conditional_edges(
-        "draft_response",
-        route_after_draft,
+        "draft_response", #原节点
+        route_after_draft, #路由函数
         {
-            "channel_router": "channel_router",
+            "channel_router": "channel_router",  #路由隐射表，路由函数返回的值作为key，这里的value就是目标节点
             "auto_send_marker": "auto_send_marker",
         },
     )
