@@ -67,25 +67,44 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("EMAIL_APP_PASSWORD", "GMAIL_APP_PASSWORD"),
     )
     email_imap_host: str = Field(
-        default="imap.exmail.qq.com",
-        validation_alias=AliasChoices("EMAIL_IMAP_HOST", "GMAIL_IMAP_HOST"),
+        default="",
+        validation_alias=AliasChoices("EMAIL_IMAP_HOST"),
     )
     email_imap_port: int = Field(
-        default=993,
-        validation_alias=AliasChoices("EMAIL_IMAP_PORT", "GMAIL_IMAP_PORT"),
+        default=0,
+        validation_alias=AliasChoices("EMAIL_IMAP_PORT"),
     )
     email_smtp_host: str = Field(
-        default="smtp.exmail.qq.com",
-        validation_alias=AliasChoices("EMAIL_SMTP_HOST", "GMAIL_SMTP_HOST"),
+        default="",
+        validation_alias=AliasChoices("EMAIL_SMTP_HOST"),
     )
     email_smtp_port: int = Field(
-        default=465,
-        validation_alias=AliasChoices("EMAIL_SMTP_PORT", "GMAIL_SMTP_PORT"),
+        default=0,
+        validation_alias=AliasChoices("EMAIL_SMTP_PORT"),
     )
     # Empty means infer SSL for port 465 and STARTTLS for other ports.
     email_smtp_security: str = Field(
         default="",
-        validation_alias=AliasChoices("EMAIL_SMTP_SECURITY", "GMAIL_SMTP_SECURITY"),
+        validation_alias=AliasChoices("EMAIL_SMTP_SECURITY"),
+    )
+
+    # Legacy values are separate so an explicit EMAIL_PROVIDER switch can
+    # ignore stale Gmail endpoints left in an old .env file. They are copied
+    # only when no new provider was selected, preserving old deployments.
+    legacy_gmail_imap_host: str = Field(
+        default="", validation_alias=AliasChoices("GMAIL_IMAP_HOST"), exclude=True
+    )
+    legacy_gmail_imap_port: int = Field(
+        default=0, validation_alias=AliasChoices("GMAIL_IMAP_PORT"), exclude=True
+    )
+    legacy_gmail_smtp_host: str = Field(
+        default="", validation_alias=AliasChoices("GMAIL_SMTP_HOST"), exclude=True
+    )
+    legacy_gmail_smtp_port: int = Field(
+        default=0, validation_alias=AliasChoices("GMAIL_SMTP_PORT"), exclude=True
+    )
+    legacy_gmail_smtp_security: str = Field(
+        default="", validation_alias=AliasChoices("GMAIL_SMTP_SECURITY"), exclude=True
     )
 
     # ---- Approval channel (Feishu by default; Slack remains a compatibility fallback) ----
@@ -239,19 +258,36 @@ class Settings(BaseSettings):
             allowed = ", ".join(sorted(_EMAIL_DEFAULTS))
             raise ValueError(f"EMAIL_PROVIDER must be one of: {allowed}")
 
+        # Capture this before normalising the provider below; assignment adds
+        # the field to model_fields_set in Pydantic v2.
+        use_legacy = "email_provider" not in self.model_fields_set
         self.email_provider = provider
         defaults = _EMAIL_DEFAULTS[provider]
-        explicit = self.model_fields_set
-        if "email_imap_host" not in explicit:
-            self.email_imap_host = str(defaults["imap_host"])
-        if "email_smtp_host" not in explicit:
-            self.email_smtp_host = str(defaults["smtp_host"])
-        if "email_imap_port" not in explicit:
-            self.email_imap_port = int(defaults["imap_port"])
-        if "email_smtp_port" not in explicit:
-            self.email_smtp_port = int(defaults["smtp_port"])
-        if "email_smtp_security" not in explicit:
-            self.email_smtp_security = "ssl" if self.email_smtp_port == 465 else "starttls"
+        if not self.email_imap_host:
+            if use_legacy and self.legacy_gmail_imap_host:
+                self.email_imap_host = self.legacy_gmail_imap_host
+            else:
+                self.email_imap_host = str(defaults["imap_host"])
+        if not self.email_smtp_host:
+            if use_legacy and self.legacy_gmail_smtp_host:
+                self.email_smtp_host = self.legacy_gmail_smtp_host
+            else:
+                self.email_smtp_host = str(defaults["smtp_host"])
+        if self.email_imap_port <= 0:
+            if use_legacy and self.legacy_gmail_imap_port > 0:
+                self.email_imap_port = self.legacy_gmail_imap_port
+            else:
+                self.email_imap_port = int(defaults["imap_port"])
+        if self.email_smtp_port <= 0:
+            if use_legacy and self.legacy_gmail_smtp_port > 0:
+                self.email_smtp_port = self.legacy_gmail_smtp_port
+            else:
+                self.email_smtp_port = int(defaults["smtp_port"])
+        if not self.email_smtp_security:
+            if use_legacy and self.legacy_gmail_smtp_security:
+                self.email_smtp_security = self.legacy_gmail_smtp_security
+            else:
+                self.email_smtp_security = "ssl" if self.email_smtp_port == 465 else "starttls"
         return self
 
     def require_secrets(self, *names: str) -> None:

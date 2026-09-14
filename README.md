@@ -3,7 +3,7 @@
 [![CI](https://github.com/Ranjith36963/hitl-support-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Ranjith36963/hitl-support-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-157%2F157-brightgreen)](#test-coverage--157--157)
+[![Tests](https://img.shields.io/badge/tests-159%2F159-brightgreen)](#test-coverage--159--159)
 
 A customer-support agent that drafts replies with an LLM but pauses for a human in Feishu whenever the stakes are real — refunds, angry customers, policy edge cases. Built on LangGraph with real Tencent/NetEase enterprise email and real Feishu (no mocks for the I/O layer), three capability-isolated MCP tool servers, and a measured `false_auto_send_rate = 0%` on the curated eval. Architecture, threat model, and head-to-head v3-vs-v4 multi-agent eval are all in the repo — no fake metrics.
 
@@ -39,7 +39,7 @@ Live screenshots from a real ticket processed by the v4 multi-agent path:
 
 ![LangSmith trace pairs](docs/screenshots/langsmith-trace-pairs.png)
 
-**Status:** v3 single-agent + v4 multi-agent (Researcher + Drafter↔Critic) both shipped behind `MULTIAGENT_ENABLED` flag (default `1` since 2026-05-23 — v4 caught 5/6 dangerous false auto-sends v3 missed on the 27-intent Bitext breadth set; see [`eval/bitext27_findings.md`](./eval/bitext27_findings.md)). **157 / 157 tests passing** (including the domestic email/Feishu adapter and configuration coverage). Live LLM eval: both versions hold `false_auto_send_rate = 0%` on 10 hand-curated + 10 Bitext tickets; on the 27-intent breadth set both currently fail safety (v3=54.5%, v4=50% of auto-sends wrong; absolute count fell 6 → 1). Demo recordings remain user-action items.
+**Status:** v3 single-agent + v4 multi-agent (Researcher + Drafter↔Critic) both shipped behind `MULTIAGENT_ENABLED` flag (default `1` since 2026-05-23 — v4 caught 5/6 dangerous false auto-sends v3 missed on the 27-intent Bitext breadth set; see [`eval/bitext27_findings.md`](./eval/bitext27_findings.md)). **159 / 159 tests passing** (including the domestic email/Feishu adapter and configuration coverage). Live LLM eval: both versions hold `false_auto_send_rate = 0%` on 10 hand-curated + 10 Bitext tickets; on the 27-intent breadth set both currently fail safety (v3=54.5%, v4=50% of auto-sends wrong; absolute count fell 6 → 1). Demo recordings remain user-action items.
 
 **Looking for the high-trust artifacts?** Architecture: [`docs/architecture.md`](./docs/architecture.md) · Threat model: [`docs/threat_model.md`](./docs/threat_model.md) · Eval methodology: [`eval/METHODOLOGY.md`](./eval/METHODOLOGY.md) · Contributing: [`CONTRIBUTING.md`](./CONTRIBUTING.md) · Security disclosure: [`SECURITY.md`](./SECURITY.md).
 
@@ -210,7 +210,7 @@ Compares `tool_selection_precision` (does the cheaper model still pick the right
 
 See [`demo/v4_critic_intercept.md`](./demo/v4_critic_intercept.md) for the agent-to-agent self-correction demo script.
 
-## Test coverage — 157 / 157
+## Test coverage — 159 / 159
 
 | Suite | Count | What it proves |
 |---|---:|---|
@@ -218,7 +218,7 @@ See [`demo/v4_critic_intercept.md`](./demo/v4_critic_intercept.md) for the agent
 | `test_integration_smoke.py` | 3 | **Async production graph** end-to-end (v3 path): refund-escalates-and-resumes, **async durability across simulated process restart**, FAQ-auto-sends. Implementation Rule 1 machine-verified — pre-interrupt nodes do NOT re-run on resume. |
 | `test_v4_integration_smoke.py` | 3 | **Async production graph** end-to-end (v4 path): Researcher + Drafter↔Critic sub-graphs wire into the parent graph; FAQ auto-sends with all 3 v4 LLM call sites mocked |
 | `test_mcp_subprocess_boot.py` | 1 | All 3 MCP servers spawn cleanly via stdio handshake — catches Python 3.13 / import bugs |
-| `test_config.py` | 3 | Tencent default, NetEase endpoint switch, and explicit endpoint override |
+| `test_config.py` | 5 | Tencent default, NetEase endpoint switch, explicit endpoint override, and legacy Gmail migration behavior |
 | `test_feishu_adapter.py` | 6 | Feishu card conversion, receive-ID fallback, callback verification, async resume, and encrypted-payload setup guard |
 | `test_slack_handler.py` | 7 | HMAC signature: valid, replay defense (±5min), body-tamper detection, malformed input |
 | `test_policy.py` | 36 | Two-gate routing — every branch including Gate 2-skipped-when-Gate-1-fails |
@@ -234,7 +234,7 @@ See [`demo/v4_critic_intercept.md`](./demo/v4_critic_intercept.md) for the agent
 | **`test_multiagent_evaluators.py`** | **8** | **v4: 5 evaluators handle empty/typical/mismatch inputs** |
 | **`test_metrics.py`** | **12** | **observability: Prometheus singletons, `@timed_node` decorator, `_TEST_RESET` covers labeled + unlabeled metric reset patterns** |
 
-(Row counts are approximate — `pytest --collect-only` is the authoritative source. Total = 157 verified.)
+(Row counts are approximate — `pytest --collect-only` is the authoritative source. Total = 159 verified.)
 
 ## Failure modes handled (per `architecture.md`)
 
@@ -272,7 +272,7 @@ cp .env.example .env
 ```bash
 pip install -r requirements.txt          # runtime deps only
 pip install -e .[dev]                    # adds pytest/ruff/mypy/bandit/pip-audit
-pytest                                   # 157 / 157 should pass (v3+v4)
+pytest                                   # 159 / 159 should pass (v3+v4)
 python -m eval.run_experiments --no-llm  # routing eval (no creds needed)
 ```
 
@@ -321,7 +321,7 @@ tests/    test_policy.py  test_slack_router.py  test_feishu_adapter.py  test_pii
           test_email_idempotency.py  test_critic_invariants.py  test_v4_integration.py
           test_v4_integration_smoke.py  test_security_email_handling.py
           test_metrics.py  test_drafter_critic_loop.py
-          (157 total across both flag modes)
+          (159 total across both flag modes)
 docs/     architecture.md  threat_model.md  v4_multiagent.md
 deploy/   prometheus.yml  grafana/  README.md                   # docker-compose observability stack
 demo/     v4_critic_intercept.md                                # demo scripts (videos TBD)

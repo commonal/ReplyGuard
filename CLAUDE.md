@@ -8,7 +8,7 @@
 - Toggle: `MULTIAGENT_ENABLED=1` enables v4 (**default since 2026-05-23**). `=0` keeps v3 path for direct comparison.
 - **Both paths retained intentionally** — the v3↔v4 head-to-head IS the deliverable. On the 10-ticket curated + 10-ticket Bitext eval sets v3 and v4 tied; on the 27-intent breadth eval and 25-ticket adversarial set **v4 caught 5/6 dangerous false auto-sends v3 missed** and 3 more classifier_trap cases — that's what drove the default flip. Trade-off: v4 ~2× cost/ticket and over-escalates some simple FAQs. Full audit in `eval/bitext27_findings.md` + `discussion.md`.
 - Live LLM eval results: both modes hold `false_auto_send_rate = 0%` on the 10-ticket curated + 10-ticket Bitext sets. Both FAIL safety on bitext27 (v3=54.5%, v4=50% of auto-sends wrong — small denominator; absolute count fell 6 → 1).
-- Tests: 157/157 passing in the current suite. CI green on every PR.
+- Tests: 159/159 passing in the current suite. CI green on every PR.
 
 ## Source docs
 
@@ -106,7 +106,7 @@ eval/        run_experiments.py  evaluators.py  dataset.py  bitext_dataset.py
              critic_intercept.py  stats.py
              METHODOLOGY.md  bitext_findings.md  bitext27_findings.md  discussion.md
 ui/          (empty — edit.html fallback was scoped but not built; Feishu card form is the default edit path, Slack modal is legacy)
-tests/       (157 total — test_policy, test_slack_router, test_feishu_adapter, test_pii, test_resume,
+tests/       (159 total — test_policy, test_slack_router, test_feishu_adapter, test_pii, test_resume,
              test_email_idempotency, test_slack_handler, test_critic_invariants,
              test_v4_integration, test_v4_integration_smoke, test_metrics,
              test_drafter_critic_loop, test_mcp_subprocess_boot, test_integration_smoke,

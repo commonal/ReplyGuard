@@ -16,7 +16,7 @@ source .venv/bin/activate          # Linux/macOS
 pip install -e .[dev]              # runtime + test/lint/security tooling
 cp .env.example .env               # fill in real keys before running the server
 
-pytest -q                          # 157 tests should pass
+pytest -q                          # 159 tests should pass
 ruff check .
 mypy
 bandit -r src mcp_server -ll
