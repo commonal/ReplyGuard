@@ -1,4 +1,4 @@
-# Threat model — HITL Customer Support Agent
+# ReplyGuard — Threat Model
 
 > STRIDE-shaped threat model for the production-mode agent. Every "Existing
 > mitigation" entry cites a real file path in this repo — if a mitigation is

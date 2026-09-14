@@ -1,4 +1,4 @@
-# HITL Customer Support Agent — Architecture
+# ReplyGuard — Human-in-the-loop Support Agent Architecture
 
 > A production-style customer support system combining LLM reasoning, deterministic policy enforcement, and human approval workflows with durable execution. Real Tencent/NetEase enterprise email in/out, Feishu test-enterprise approvals, three capability-isolated MCP servers.
 

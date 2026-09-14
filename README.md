@@ -1,11 +1,11 @@
-# HITL Customer Support Agent
+# ReplyGuard｜人机协同客服 Agent
 
 [![CI](https://github.com/Ranjith36963/hitl-support-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Ranjith36963/hitl-support-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
 [![Tests](https://img.shields.io/badge/tests-159%2F159-brightgreen)](#test-coverage--159--159)
 
-A customer-support agent that drafts replies with an LLM but pauses for a human in Feishu whenever the stakes are real — refunds, angry customers, policy edge cases. Built on LangGraph with real Tencent/NetEase enterprise email and real Feishu (no mocks for the I/O layer), three capability-isolated MCP tool servers, and a measured `false_auto_send_rate = 0%` on the curated eval. Architecture, threat model, and head-to-head v3-vs-v4 multi-agent eval are all in the repo — no fake metrics.
+ReplyGuard 是一个面向企业邮箱的 AI 客服 Agent：由 LLM 起草回复，在退款、愤怒客户和策略边界等高风险场景暂停并交给飞书人工审批。项目基于 LangGraph，接入腾讯/网易企业邮箱与飞书测试企业，使用三个按能力隔离的 MCP 工具服务，并以 `false_auto_send_rate = 0%` 作为核心安全指标。架构、威胁模型和 v3/v4 多智能体评估材料均保存在仓库中。
 
 ![End-to-end flow](docs/hitl-flow.png)
 

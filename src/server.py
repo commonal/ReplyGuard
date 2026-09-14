@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         graph_runner.shutdown()
 
 
-app = FastAPI(title="HITL Support Agent", lifespan=lifespan)
+app = FastAPI(title="ReplyGuard | 人机协同客服 Agent", lifespan=lifespan)
 
 # Prometheus scrape endpoint. Open by design (no auth) — see docs/threat_model.md
 # row A5 for the rationale (loopback-only default host; scrape over localhost

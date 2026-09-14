@@ -80,7 +80,7 @@ def arrow(x1, y1, x2, y2, color="#1e1e1e", label=None,
 
 
 # Title
-ax.text(50, 98, "HITL Customer Support Agent — Detailed Flow",
+ax.text(50, 98, "ReplyGuard — Detailed Flow",
         ha="center", va="center", fontsize=17, fontweight="bold")
 ax.text(50, 95.5,
         "v3 hero diagram — v4 adds Researcher + Drafter↔Critic inside the Retrieve / Draft nodes",
