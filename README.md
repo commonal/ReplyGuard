@@ -1,357 +1,152 @@
 # ReplyGuard｜人机协同客服 Agent
 
-[![CI](https://github.com/Ranjith36963/hitl-support-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Ranjith36963/hitl-support-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-159%2F159-brightgreen)](#test-coverage--159--159)
+[![测试](https://img.shields.io/badge/tests-159%2F159-brightgreen)](#测试)
 
-ReplyGuard 是一个面向企业邮箱的 AI 客服 Agent：由 LLM 起草回复，在退款、愤怒客户和策略边界等高风险场景暂停并交给飞书人工审批。项目基于 LangGraph，接入腾讯/网易企业邮箱与飞书测试企业，使用三个按能力隔离的 MCP 工具服务，并以 `false_auto_send_rate = 0%` 作为核心安全指标。架构、威胁模型和 v3/v4 多智能体评估材料均保存在仓库中。
+ReplyGuard 是一个面向企业邮箱的 AI 客服 Agent。它可以读取客户邮件、生成回复草稿，并在退款、投诉、愤怒客户或策略不明确等高风险场景下暂停，将审批卡片发送到飞书测试企业，由人工决定批准、修改或拒绝后再继续处理。
 
-![End-to-end flow](docs/hitl-flow.png)
+项目基于 LangGraph，支持腾讯企业邮箱和网易企业邮箱，默认使用飞书作为人工审批渠道。核心安全目标是：false_auto_send_rate = 0%，即不允许高风险邮件被系统误自动发送。
 
-## Watch it run
+## 核心流程
 
-[![Watch Part 1 — Live end-to-end](https://cdn.loom.com/sessions/thumbnails/1dcea3327a774699a705acf79eaab9d4-with-play.gif)](https://www.loom.com/share/1dcea3327a774699a705acf79eaab9d4)
+![ReplyGuard 端到端流程](docs/hitl-flow.png)
 
-*Part 1 — Email arrives, agent drafts, human approves in Feishu, reply lands in the customer's inbox (4 min)*
+1. 从配置的企业邮箱通过 IMAP 接收客户邮件。
+2. 在进入模型前对邮箱、姓名等个人信息进行脱敏。
+3. 识别客户意图，读取模拟 CRM 和企业政策知识库，并生成回复草稿。
+4. 依次经过策略风险检查和置信度检查两道门。
+5. 安全且置信度足够高的请求，自动通过 SMTP 回复客户。
+6. 其他请求暂停在持久化检查点，并向飞书发送审批卡片。
+7. 人工点击“批准 / 修改 / 拒绝”后，流程从暂停位置恢复，完成发送或进入人工处理队列。
 
-[![Watch Part 2 — Observability](https://cdn.loom.com/sessions/thumbnails/c1d9a80faf3f453aa3447f525d34ff28-with-play.gif)](https://www.loom.com/share/c1d9a80faf3f453aa3447f525d34ff28)
+客户只会收到企业邮箱中的正常回复，不会看到 Agent 或飞书内部审批过程。
 
-*Part 2 — Grafana dashboards + LangSmith trace tree showing the pause/resume pair (~2 min)*
+## 演示与截图
 
-## See it in action
+- [端到端演示：邮件 → 飞书审批 → 邮件回复](https://www.loom.com/share/1dcea3327a774699a705acf79eaab9d4)
+- [可观测性演示：Grafana 与 LangSmith](https://www.loom.com/share/c1d9a80faf3f453aa3447f525d34ff28)
 
-Live screenshots from a real ticket processed by the v4 multi-agent path:
+![飞书审批卡片](docs/screenshots/slack-approval-card.png)
 
-**Feishu approval card** — `risk_flags` fired (refund + money_mention + refund_intent), intent confidence scored, draft reply ready for human review with Approve / Edit / Reject buttons:
+![Grafana 监控面板](docs/screenshots/grafana-dashboard.png)
 
-![Feishu approval card](docs/screenshots/slack-approval-card.png)
+## 主要设计
 
-**Grafana dashboard** — end-to-end ticket latency (p50 ~3s, p95 ~5s), per-call LLM latency, and token throughput split by call site. The drafter and critic dominating the bottom-right panel is the v4 multi-agent path lit up in real numbers — not slideware:
+- **两道安全门**：先做策略风险检查，再做置信度检查，避免用一个模糊路由器决定是否自动发送。
+- **人工审批可恢复**：使用 LangGraph interrupt() 和 SQLite 检查点，服务重启后仍可从暂停位置继续。
+- **工具能力隔离**：三个 MCP 服务分别负责读取信息、发送邮件和发送审批卡片，读取工具没有发送能力。
+- **发送幂等**：应用层记录幂等键，避免流程重试导致同一封邮件重复发送。
+- **隐私保护**：入口脱敏，最终发送前恢复必要信息；审计记录不保存原始个人信息。
+- **有界重试**：拒绝次数、模型修订次数和 SMTP 重试次数均有上限，避免无限循环。
+- **飞书回调校验**：校验验证令牌，快速响应回调，再恢复对应的工作流。
 
-![Grafana dashboard](docs/screenshots/grafana-dashboard.png)
+详细说明：
 
-**LangSmith trace detail** — the full audit log of a single ticket. Visible: `_critic_verdict: revise` with the Critic's verbatim feedback, both `original_draft` and `final_draft` preserved (audit-log invariant), `customer_message` showing PII redacted to `[EMAIL_1]` token, real SMTP `sent_message_id`, idempotency key, SLA deadline, graph version `v4`, risk level `financial`:
+- [中文端到端流程](HOW_IT_WORKS.zh-CN.md)
+- [中文架构说明](docs/architecture.zh-CN.md)
+- [架构与状态流转](docs/architecture.md)
+- [威胁模型](docs/threat_model.md)
+- [v4 多智能体设计](docs/v4_multiagent.md)
+- [评估方法](eval/METHODOLOGY.md)
 
-![LangSmith trace detail](docs/screenshots/langsmith-trace-detail.png)
+## 当前状态
 
-**LangSmith trace pair** — every ticket appears as two adjacent runs: the red marker is the pause (LangGraph's interrupt mechanism raising an exception by design — not a failure), the green is the resume that completes after the human clicks Approve:
+- v3 单 Agent 流程和 v4 多 Agent 流程均保留，可通过环境变量切换。
+- v4 包含 Researcher、Drafter 和 Critic 三类 Agent，并使用有界修订循环。
+- 当前测试：**159 / 159 通过**。
+- 27 类 Bitext 宽度评估已经暴露出分类器在部分非目标场景下仍可能误判，不能把当前版本当作无需人工监督的生产系统。
 
-![LangSmith trace pairs](docs/screenshots/langsmith-trace-pairs.png)
+切换版本：
 
-**Status:** v3 single-agent + v4 multi-agent (Researcher + Drafter↔Critic) both shipped behind `MULTIAGENT_ENABLED` flag (default `1` since 2026-05-23 — v4 caught 5/6 dangerous false auto-sends v3 missed on the 27-intent Bitext breadth set; see [`eval/bitext27_findings.md`](./eval/bitext27_findings.md)). **159 / 159 tests passing** (including the domestic email/Feishu adapter and configuration coverage). Live LLM eval: both versions hold `false_auto_send_rate = 0%` on 10 hand-curated + 10 Bitext tickets; on the 27-intent breadth set both currently fail safety (v3=54.5%, v4=50% of auto-sends wrong; absolute count fell 6 → 1). Demo recordings remain user-action items.
-
-**Looking for the high-trust artifacts?** Architecture: [`docs/architecture.md`](./docs/architecture.md) · Threat model: [`docs/threat_model.md`](./docs/threat_model.md) · Eval methodology: [`eval/METHODOLOGY.md`](./eval/METHODOLOGY.md) · Contributing: [`CONTRIBUTING.md`](./CONTRIBUTING.md) · Security disclosure: [`SECURITY.md`](./SECURITY.md).
-
----
-
-## What it does
-
-Reads inbound customer email from the configured enterprise mailbox (real IMAP IDLE). Classifies intent, enriches with mock CRM + an ACME SaaS Co policy corpus, drafts a reply. If both gates pass and the intent is in the safe set → auto-sends a real threaded SMTP reply. Otherwise pauses durably (LangGraph `interrupt()` + AsyncSqliteSaver) and posts an interactive Feishu approval card to the configured test chat. Human clicks Approve / Edit / Reject — graph resumes and ships.
-
-Customer never sees the agent or Feishu. The reply lands in their inbox threaded under the original message.
-
-## Why HITL matters in 2026/2027
-
-Enterprises deploy human-on-demand agents, not full autonomy. Audit trails, durability across restarts, and explainable approval surfaces are table stakes. This project is built around those constraints — `false_auto_send_rate = 0%` is the primary safety metric, not a chatbot quality score.
-
-## Architecture
-
-The flow diagram above shows the v3 path top-to-bottom — email in → PII redact → classify → enrich → draft → two gates → either auto-send or pause for human on Feishu → finalize → send → audit. **15 graph nodes, 5 conditional edges, 3 capability-isolated MCP servers** (Read · Email Write · Approval Write).
-
-- End-to-end product walkthrough: [`HOW_IT_WORKS.md`](./HOW_IT_WORKS.md)
-- Mermaid diagrams (with v4 sub-graph), state schema, LangSmith tags, Prometheus metrics table: [`docs/architecture.md`](./docs/architecture.md)
-- Build spec (sign-off criteria, failure modes, differentiators): [`spec.md`](./spec.md)
-
-## Differentiators (vs typical portfolio HITL projects)
-
-1. **Real Tencent/NetEase enterprise IMAP+SMTP**, not mocked — IDLE primary with 30s poll fallback, three threading headers (`In-Reply-To` + `References` + `Subject: Re:`)
-2. **Real Feishu interactive approval cards with priority-ordered routing** — one test chat is enough for local setup; per-intent Feishu chat IDs remain configurable
-3. **Three custom MCP servers with capability separation** — Read cannot Send, Email Write cannot post approval cards, Approval Write cannot email; bounded blast radius for prompt injection
-4. **Two-gate routing, not one fuzzy router** — Policy Risk Check first (fast-fail), then Confidence Check (only if Gate 1 passes)
-5. **`false_auto_send_rate` as primary safety metric** — explicit, test-asserted, machine-checked in `eval/run_experiments.py`
-6. **App-layer idempotent send** — `EmailSendResult.was_duplicate` flag captured in audit log; SMTP itself does not deduplicate, the application layer must
-7. **Implementation Rules enforced by tests** — `interrupt()` lives alone in `interrupt_gate`; integration test asserts the approval post is called exactly once after a full pause+resume cycle
-8. **Feishu callback verification** — verification token check, quick acknowledgement, and durable graph resume; the Slack HMAC verifier remains available only for the legacy fallback
-9. **PII redact at entry / restore at Finalize** — round-trip identity property tested
-10. **Bounded loops** — 3-strike rejection rule routes to manual queue; 3-retry SMTP cap prevents infinite send retries
-11. **Stale-context revalidation** — on long approval pauses (>15 min), context is re-fetched, hash-compared, and a delta panel is posted to Feishu so the approver re-decides with fresh info instead of a silent stale send
-12. **Durable resume across process restart** — kill the server mid-pause, restart it; the SQLite checkpointer survives, the Feishu card buttons still resume on the right opaque message ID stored in `slack_message_ts`
-13. **Production-readiness layer** — three-tier eval (behavior contracts / empirical with bootstrap CIs / adversarial pass-fail grid), STRIDE threat model with mitigation citing real file paths, GitHub Actions CI (ruff + mypy + pytest + pip-audit + bandit), `/metrics` Prometheus endpoint + **`docker compose up` brings a Grafana dashboard live at `localhost:3000`** (see [`deploy/README.md`](./deploy/README.md)), per-ticket cost telemetry. Methodology + gaps led not buried — see [`eval/METHODOLOGY.md`](./eval/METHODOLOGY.md) and [`docs/threat_model.md`](./docs/threat_model.md)
-
-## Tech stack
-
-| Layer | Tool |
-|---|---|
-| Orchestration | LangGraph + AsyncSqliteSaver checkpointer |
-| Observability | LangSmith (`@traceable` on every LLM call) |
-| LLM | Provider-agnostic via `LLM_PROVIDER` env switch — **OpenRouter / DeepSeek V3** for the curated + 10-ticket Bitext runs (free tier), **OpenAI `gpt-4o-mini`** for the 27-intent breadth eval and the adversarial set (after OpenRouter free credits ran out). Both providers use the same OpenAI-compatible SDK in `src/llm.py`. |
-| Customer I/O | Real Tencent/NetEase enterprise IMAP IDLE (in) + SMTP (out) |
-| Approval channel | Real Feishu — interactive card callback via FastAPI |
-| Tools | Three custom MCP servers via `mcp` Python SDK |
-| Backend | FastAPI + uvicorn |
-| Eval | LangSmith evaluators + 10-ticket hand-curated dataset |
-
-## Eval results — v3 architecture, real LLM (DeepSeek V3)
-
-> **Provider note (read once, applies to every eval below).** The earlier runs (curated 10-ticket + the first Bitext 10-ticket sets) used **OpenRouter's free DeepSeek V3** tier. The free credits ran out mid-project, so the later runs (the 27-intent Bitext breadth set and the 25-ticket adversarial set) were re-baselined on **OpenAI `gpt-4o-mini`**. Both providers run through the same OpenAI-compatible client (`src/llm.py`) — the swap is one env var (`LLM_PROVIDER=openrouter|openai`). Each results file's header names which provider it ran on; the table headings below repeat the provider so you never have to cross-reference. The provider switch was budget-driven, NOT a model-comparison experiment.
-
-_Source: [`eval/results_curated_v3.json`](./eval/results_curated_v3.json) (v2 prompt column) + LangSmith trace history (v1 prompt column). 10 hand-curated tickets — see [`eval/dataset.py`](./eval/dataset.py)._
-
-| Metric | v1 prompt | v2 prompt (few-shot) | Target | Status |
-|---|---|---|---|---|
-| **False auto-send rate** | 0.0% | **0.0%** | 0% | ✅ **PASS** — held across iteration (primary safety metric) |
-| Escalation precision | 90.0% | **100.0%** | >90% | ✅ PASS |
-| Response quality (LLM-as-judge) | 4.10 / 5 | **4.40 / 5** | >4.0 | ✅ PASS |
-| Intent accuracy | 50.0% | **70.0%** | >85% | ⚠️ below target — see below |
-
-**Behavior correctness: 10 / 10 tickets** reach the expected outcome (auto_send vs escalated). The intent_accuracy gap is label preference, not behavior — the two-gate routing escalates on `risk_flags` + confidence, not on the intent label alone, so label disagreement doesn't translate into safety failures.
-
-Examples of label disagreement that did NOT change behavior:
-- T07 expected `basic_technical`, LLM returned `info` — both in auto-send-safe set; auto-sent correctly
-- T04 enterprise refund expected `refund`, LLM returned `billing` — both escalate via Gate 1
-- T09 multi-intent expected `other`, LLM returned `billing` — both escalate via Gate 2
-
-Per-ticket and failure-slice tables: [`eval/results.md`](./eval/results.md).
-
-### Prompt iteration story (real, not invented)
-
-- **v1 prompt:** plain schema + rules. Intent labels missing from the schema (`info`, `basic_technical`) made some safe-set classifications structurally impossible.
-- **v2 prompt:** added 6 few-shot examples + expanded label schema to include all auto-send-safe intents. Result: +20 points intent accuracy, +10 points escalation precision, +0.30 response quality. Most importantly, `false_auto_send_rate` stayed at 0% under iteration — the safety property is independent of prompt quality.
-- **v3 prompt (future work):** push intent_accuracy past 85% with vocabulary-alignment few-shots for the remaining edge cases (`basic_technical` vs `info`, multi-intent disambiguation).
-
-> **No fake metrics.** Both v1 and v2 columns are real runs. v3 prompt is honestly marked as future work — not a made-up number.
-
-## v4 — Multi-Agent Iteration
-
-v3 ships a single-drafter HITL workflow. **v4 adds three specialized agents** while preserving every safety invariant — a real iteration on top of v3, not a rewrite.
-
-### Architecture
-
-| Agent | Replaces | What it gains |
-|---|---|---|
-| **Researcher Agent** | `enrich_context_node` | Decides which MCP Read tools to call by intent (FAQ → KB only; refund → all 3) |
-| **Drafter Agent** | `draft_response_node` | Writes the reply; integrates Critic feedback on revision |
-| **Critic Agent** *(NEW)* | — | Audits draft against policy + tone; can request **up to two revision passes** before exit (loop cap `MAX_CRITIC_ITERATIONS = 3` → Drafter runs at most 3×) |
-
-The outer graph is unchanged (still 15 nodes). Drafter and Critic run inside a bounded loop sub-graph (`MAX_CRITIC_ITERATIONS = 3`). See [`docs/v4_multiagent.md`](./docs/v4_multiagent.md) for the spec amendment.
-
-### Hard invariants preserved (proven in code, not just docs)
-
-- **PII determinism** — `pii_redact_node` runs first, deterministically. No agent placed before redaction.
-- **`false_auto_send_rate = 0%`** — Gate 1 + Gate 2 stay hard-coded in `src/policy.py`. **Critic verdict adjusts `draft_confidence`; it does NOT replace the gates.** Five `test_critic_invariants.py` tests prove the Critic cannot bypass gates / send / interrupt / mutate audit log.
-- **`interrupt_gate` isolation** — Implementation Rule 1 unchanged.
-- **Idempotent send** — `sent_message_id` lock unchanged.
-- **Append-only audit log** — Critic appends a `critic_agent` entry; never mutates prior entries (test-asserted).
-
-### Toggle (one env var)
-
-```bash
-MULTIAGENT_ENABLED=1 python -m src.server  # v4 multi-agent
-MULTIAGENT_ENABLED=0 python -m src.server  # v3 single-agent (comparison artifact — see below)
-```
-
-> **Honest framing on v3 path:** v3 is retained as the **comparison artifact** for the v3-vs-v4 iteration story above, **not** as a "production rollback" — this is a portfolio build with no live traffic, so calling it production-rollback would be cosplay. **Both paths stay.** The 10-ticket curated + 10-ticket Bitext head-to-head tied; the later 27-intent Bitext breadth eval + 25-ticket adversarial set showed **v4 catches 5/6 dangerous false auto-sends v3 missed** and 3 more classifier-trap cases — that's why the default **flipped to `MULTIAGENT_ENABLED=1` (v4) on 2026-05-23**. Trade-off: v4 ~2× cost/ticket and over-escalates some simple FAQs. Set `=0` to recover the v3 single-agent baseline for direct comparison. See `src/graph.py:174-198` for the full history block, `eval/bitext27_findings.md` for the evidence, and `discussion.md` for the earlier (pre-flip) audit.
-
-### v3 vs v4 metrics (10 hand-curated tickets, live DeepSeek V3 via OpenRouter)
-
-_Refreshed 2026-05-18 through the de-rigged harness — real KB retrieval, no injected policy matches. Sources: [`eval/results_curated_v3.json`](./eval/results_curated_v3.json) (v3 column) + [`eval/results_curated_v4.json`](./eval/results_curated_v4.json) (v4 column)._
-
-| Metric | v3 | v4 | Δ |
-|---|---|---|---|
-| Intent accuracy | 70.0% | 70.0% | 0.0 pp |
-| Escalation precision | 100.0% | 100.0% | 0.0 pp |
-| **`false_auto_send_rate`** | **0.0%** | **0.0%** | **unchanged (safety invariant)** ✅ |
-| Response quality (LLM-judge) | 4.50 / 5 | 4.10 / 5 | −0.40 (run-to-run noise) |
-| Cost per ticket | *instrumented; column unpopulated* | *instrumented; column unpopulated* | — |
-
-> **Cost-telemetry status — honest.** The instrumentation *has shipped*: `src/llm.py` defines a `_PRICING` dict (model → per-1k in/out price, verified 2026-05-22) and a `track_llm_usage()` helper called from every `_chat_json` site that mutates `state["cost_breakdown"]`, `state["total_tokens"]`, and `state["total_cost_usd"]` on each LLM call. The cells in the table above are empty only because the curated eval has not been re-run since the instrumentation landed; running `LLM_PROVIDER=openai python -m eval.run_experiments --dataset curated --multiagent` populates them. The earlier deferral note (no shortcut, no fake numbers) still holds for what the instrumentation does and does NOT do — it accumulates per-call cost from the provider's `usage` payload, not from token-length estimates.
-
-**Honest finding — what the Critic did:** nothing measurable. In the refreshed run v3 and v4 produced **identical outcomes on all 10 tickets** — same intents, same escalate/auto-send decisions. An earlier run (2026-05-09, before the harness was de-rigged) had recorded v4 over-escalating one ticket (`eval-t07`) and scoring 90% escalation precision. A fresh run did **not** reproduce that — `eval-t07` auto-sent correctly under v4. That single ticket was run-to-run LLM noise, not a structural v4 regression.
-
-**Honest bottom line on the curated set: v4 did not beat v3.** Every metric is a tie or within noise. The response-quality gap (4.50 vs 4.10) is one LLM-judge run varying against another — a single live judge call per draft at n=10, where running v3 against itself twice would show comparable spread — and it points the *wrong* way for v4. The structural reason a v4 win on this set is unlikely still holds: the Critic can only ever *lower* `draft_confidence` (`src/agents/critic.py` multiplies it by `1 - severity*0.5`, always in `[0.5, 1.0]`), so v4 escalates **≥** v3 on every ticket and cannot beat a v3 already at 100% escalation precision. **On this evidence alone, the default stayed v3** — the simpler path beat the more complex one on a tie. The full picture changed later, when the 27-intent Bitext breadth eval + the adversarial set surfaced cases v3 silently auto-sent dangerously and v4 caught (see the "Breadth eval" paragraph below); that is what drove the **2026-05-23 default flip to `MULTIAGENT_ENABLED=1` (v4)**. The takeaway is the measurement discipline: v4 was built, evaluated head-to-head twice (curated + Bitext10), held back as default while it tied, then promoted when the harder distributions actually distinguished the two. Full audit of the pre-flip reasoning: [`discussion.md`](./discussion.md).
-
-**External cross-check — real Bitext data.** A second, independent eval on 10 real customer messages from the Bitext Customer Support dataset (run live through both versions) reached the same verdict: v3 and v4 produced identical outcomes on 9 of 10 tickets, and the one difference is run-to-run LLM noise on a node v4 does not even change. In that 2026-05-18 run intent accuracy fell to 50–60% on real external text (vs ~70% hand-curated) — but `false_auto_send_rate` held at 0% in both. Full write-up: [`eval/bitext_findings.md`](./eval/bitext_findings.md).
-
-**Honest caveat on `response_quality`.** The LLM-as-judge is the same provider+model family as the drafter (`gpt-4o-mini` judging `gpt-4o-mini` on OpenAI runs; same for DeepSeek-on-DeepSeek on prior OpenRouter runs). Same-family self-evaluation has known positive bias. `eval/cross_judge.py` is scripted to re-score with `gpt-4o` and report Pearson `r` + quadratic-weighted Cohen's κ, but **the cross-judge run has not been executed against the latest results yet** — `eval/cross_judge_results.json` is the deferred artifact (run command in [`eval/METHODOLOGY.md`](./eval/METHODOLOGY.md) "Reproducing"). A fully different-family judge (Claude / Gemini) would be a stronger signal — deferred until a non-OpenAI key is available. See METHODOLOGY's "Judge bias" section.
-
-**Breadth eval — all 27 Bitext intents, the honest worst-case (2026-05-21).** The 10-intent eval was filtered to SaaS-mappable intents. The full 27-intent breadth eval — one ticket per intent, including out-of-domain e-commerce intents — is the harder test, and **both versions fail the primary safety metric** on it. v3 produces **6 dangerous false auto-sends** out of 27 (`false_auto_send_rate = 54.5%` of its 11 auto-sends). **v4 caught 5 of those 6**, reducing dangerous auto-sends to 1, but at the cost of 7 over-corrections (escalated drafts the user could have safely auto-sent). The one false auto-send v4 still misses (`registration_problems` classified as `FAQ`) is a classifier-confidently-wrong case the Critic architecturally cannot detect — it operates on the draft, not on the intent label. This is the multi-agent design's ceiling and the highest-EV target for the next round of work. Provider note: this run used **OpenAI `gpt-4o-mini`** after the OpenRouter free-tier credits ran out — new baseline, intentionally labeled. Full senior-architect write-up: [`eval/bitext27_findings.md`](./eval/bitext27_findings.md).
-
-**v4's first real win — the Critic-intercept eval (2026-05-19).** Every eval above grades escalate-vs-auto-send, an axis where v4's one-directional Critic is structurally capped. `eval/critic_intercept.py` finally measures v4 on its actual job — catching a flawed draft before a human sees it. Fed 5 deliberately-bad drafts and 5 good controls, the live Critic caught **4 of 5 bad drafts (80% intercept)** with **0 false alarms**. This is the first eval in the repo that credits the multi-agent layer on the axis it was built for. (One miss: an unsupported "you're an Enterprise customer" claim, accepted because no customer profile was supplied in the test state — see findings doc.)
-
-**Classifier improvement (2026-05-19).** The intent-classifier prompt was sharpened — clearer `FAQ`/`info`/`basic_technical` boundaries, a billing-vs-technical rule, typo robustness. A clean v3 Bitext re-run measured intent accuracy **50% → 70%** and escalation precision **90% → 100%**. The matched v4 re-run has not been executed — `results_bitext_v3.json` (post-fix) and `results_bitext_v4.json` (pre-fix) are currently a mismatched pair; both files carry a ⚠️ banner. With the project on OpenAI `gpt-4o-mini` for newer evals, the matched v4 re-run costs roughly $0.05 to regenerate (`LLM_PROVIDER=openai python -m eval.run_experiments --dataset bitext --multiagent`); it just hasn't been done yet. `classify_intent` is shared code that runs before the v3/v4 swap, so the same gain is expected for v4 — but that is reasoning, not yet a measurement.
-
-Raw run artifacts: [`results_curated_v3.json`](./eval/results_curated_v3.json) · [`results_curated_v4.json`](./eval/results_curated_v4.json) · [`results_bitext_v3.json`](./eval/results_bitext_v3.json) (post-prompt-fix, OpenRouter / DeepSeek V3) · [`results_bitext_v4.json`](./eval/results_bitext_v4.json) (pre-fix — re-run pending credits) · [`results_bitext27_v3.json`](./eval/results_bitext27_v3.json) (OpenAI gpt-4o-mini, 27-intent breadth) · [`results_bitext27_v4.json`](./eval/results_bitext27_v4.json) (OpenAI gpt-4o-mini, 27-intent breadth) · [`results_critic_intercept.json`](./eval/results_critic_intercept.json). The earlier `results_v3_live.json` / `results_v4_live.json` (2026-05-09) are kept as the subject of the `discussion.md` audit.
-
-**Multi-agent-specific evaluators** (`eval/multiagent_evaluators.py`) are wired but not yet aggregated into the v3-vs-v4 table — they require LangSmith run-tree introspection rather than the existing per-ticket harness:
-
-| Evaluator | Status | Inspection path |
-|---|---|---|
-| `tool_selection_precision` | Researcher tool calls captured in audit log | `eval/results_v4_live.json` audit entries |
-| `critic_disagreement_with_drafter` | Critic verdicts captured in audit log | inspect ticket-level `audit_log` entries with `node="critic_agent"` |
-| `critic_alignment_with_humans` | needs `audit_log` + `(original_draft, final_draft)` pairs from human edits | runs once Feishu edit demo data is captured |
-| `loop_iteration_count` | drafter audit entries with `iteration` field | per-ticket inspection |
-| `agent_cost_breakdown` | per-agent cost via LangSmith run-tree | LangSmith UI for now; aggregator is v4.1 work |
-
-### A/B Researcher-model swap (`python -m eval.ab_model_swap`)
-
-| Arm | Researcher Model | Drafter+Critic Model |
-|---|---|---|
-| default | `deepseek/deepseek-chat` | `deepseek/deepseek-chat` |
-| cheap | `meta-llama/llama-3.1-8b-instruct` | `deepseek/deepseek-chat` |
-
-Compares `tool_selection_precision` (does the cheaper model still pick the right MCP tools?) and `agent_cost_breakdown` (does the swap save real money?). Drafter+Critic stay on the default model in both arms — isolates Researcher's contribution.
-
-### Engineering choices documented honestly
-
-- **Researcher milestone-1 is deterministic, not full ReAct.** Same trace narrative at 1/3 the cost and zero risk of agent loops. Full ReAct upgrade is v4.1 follow-up — see comment block in `src/agents/researcher.py`.
-- **Critic loop hard cap is 3 iterations** (up to 2 revision passes). Test-asserted in `test_drafter_critic_loop.py`. Even when the Critic returns "revise" forever, the loop exits.
-- **No new LLM dependency.** v4 uses the same SDK as v3 (`openai.AsyncOpenAI`) but through its own factory (`src/agents/base.get_llm()`), not by importing v3's client. Same library, parallel module — one OpenRouter integration class to debug, but the v4 agents do not have a runtime dependency on `src.nodes`. Module dependency arrow is v3→shared and v4→shared, never v4→v3.
-
-See [`demo/v4_critic_intercept.md`](./demo/v4_critic_intercept.md) for the agent-to-agent self-correction demo script.
-
-## Test coverage — 159 / 159
-
-| Suite | Count | What it proves |
-|---|---:|---|
-| `test_resume.py` | 3 | Sync skeleton durability: pause, kill graph object, re-instantiate, resume |
-| `test_integration_smoke.py` | 3 | **Async production graph** end-to-end (v3 path): refund-escalates-and-resumes, **async durability across simulated process restart**, FAQ-auto-sends. Implementation Rule 1 machine-verified — pre-interrupt nodes do NOT re-run on resume. |
-| `test_v4_integration_smoke.py` | 3 | **Async production graph** end-to-end (v4 path): Researcher + Drafter↔Critic sub-graphs wire into the parent graph; FAQ auto-sends with all 3 v4 LLM call sites mocked |
-| `test_mcp_subprocess_boot.py` | 1 | All 3 MCP servers spawn cleanly via stdio handshake — catches Python 3.13 / import bugs |
-| `test_config.py` | 5 | Tencent default, NetEase endpoint switch, explicit endpoint override, and legacy Gmail migration behavior |
-| `test_feishu_adapter.py` | 6 | Feishu card conversion, receive-ID fallback, callback verification, async resume, and encrypted-payload setup guard |
-| `test_slack_handler.py` | 7 | HMAC signature: valid, replay defense (±5min), body-tamper detection, malformed input |
-| `test_policy.py` | 36 | Two-gate routing — every branch including Gate 2-skipped-when-Gate-1-fails |
-| `test_slack_router.py` | 18 | Priority overrides on 3 channels, `angry` always wins, intent fallthrough |
-| `test_pii.py` | 19 | Redact + restore round-trip identity, stable token reuse, multi-PII handling |
-| `test_email_idempotency.py` | 6 | Audit finding H2 — atomic idempotent send; re-running the graph cannot double-send |
-| `test_security_email_handling.py` | 12 | Audit findings C1/C2/H3 — reply to SMTP envelope-from (no `From:` spoofing), no PII in audit log |
-| **`test_agents_base.py`** | **5** | **v4: handoff metadata schema, prompt loader, AsyncOpenAI factory** |
-| **`test_researcher_agent.py`** | **3** | **v4: intent → tool selection (FAQ skips history; refund calls all 3)** |
-| **`test_critic_invariants.py`** | **6** | **v4: Critic CANNOT bypass gates / set send / mutate audit log; severity clamped to [0,1]** |
-| **`test_drafter_critic_loop.py`** | **3** | **v4: loop cap = 3 iterations (up to two revision passes) even on infinite "revise"; respects accept verdict** |
-| **`test_v4_integration.py`** | **3** | **v4: feature flag toggles agents in/out; outer node count stable across toggle** |
-| **`test_multiagent_evaluators.py`** | **8** | **v4: 5 evaluators handle empty/typical/mismatch inputs** |
-| **`test_metrics.py`** | **12** | **observability: Prometheus singletons, `@timed_node` decorator, `_TEST_RESET` covers labeled + unlabeled metric reset patterns** |
-
-(Row counts are approximate — `pytest --collect-only` is the authoritative source. Total = 159 verified.)
-
-## Failure modes handled (per `architecture.md`)
-
-| Failure | Behavior |
-|---|---|
-| Server crashes mid-pause | SQLite checkpoint at last super-step. On restart, Feishu buttons still resume on the right compatibility message ID (`slack_message_ts`). |
-| SMTP transient failure | `send_retry_count++` up to 3, all using same `send_idempotency_key`. After 3 → `failed_manual` → manual queue + Feishu notice. |
-| Customer follow-up mid-pause | `ticket_external_status = superseded`, old draft discarded, Feishu card updated. |
-| Prompt injection in inbound email | MCP READ server has zero send capability; injection during retrieval has no path to email or Feishu. Eval ticket T10 verifies. |
-| Feishu callback token mismatch | 401 + log security event; callback verification tests cover it. |
-| 3 rejections | Auto-routes to manual queue, customer notified. |
-| LangSmith down | Agent continues; traces buffer locally. Observability outage doesn't break flow. |
-| Long approval delay (>15 min) | Context revalidated, delta posted to Feishu, approver re-decides. |
-
-## Run locally
-
-### 0. Provision secrets
-
-```bash
-cp .env.example .env
-# Edit .env with:
-#   LLM_PROVIDER           "openrouter" (default — uses DeepSeek V3 free tier)
-#                          or "openai"  (uses OPENAI_MODEL, default gpt-4o-mini)
-#   OPENROUTER_API_KEY     (https://openrouter.ai)         needed when LLM_PROVIDER=openrouter
-#   OPENAI_API_KEY         (https://platform.openai.com)   needed when LLM_PROVIDER=openai
-#   LANGSMITH_API_KEY      (https://smith.langchain.com)
-#   EMAIL_USER + EMAIL_APP_PASSWORD   (Tencent/NetEase client authorization code)
-#   FEISHU_APP_ID + FEISHU_APP_SECRET + FEISHU_RECEIVE_ID
-#                          (self-built app in a Feishu test enterprise,
-#                           bot added to the target test chat)
-```
-
-### 1. Install + run tests
-
-```bash
-pip install -r requirements.txt          # runtime deps only
-pip install -e .[dev]                    # adds pytest/ruff/mypy/bandit/pip-audit
-pytest                                   # 159 / 159 should pass (v3+v4)
-python -m eval.run_experiments --no-llm  # routing eval (no creds needed)
-```
-
-### 2. Boot the service
-
-```bash
+```powershell
+$env:MULTIAGENT_ENABLED = "1"  # v4 多 Agent，默认
 python -m src.server
-# IMAP listener spins up on EMAIL_USER inbox
-# Feishu callbacks are served at POST /feishu/events
-# Send a test email to EMAIL_USER → approve the card in the test chat
+
+$env:MULTIAGENT_ENABLED = "0"  # v3 单 Agent，对照版本
+python -m src.server
 ```
 
-### 3. Run the full eval (with LLM)
+## 快速开始
 
-```bash
-# Default — OpenRouter / DeepSeek V3 (free tier):
-python -m eval.run_experiments
+### 1. 创建环境并安装依赖
 
-# OpenAI — used for the 27-intent breadth eval + adversarial set:
-LLM_PROVIDER=openai python -m eval.run_experiments --dataset bitext27 --multiagent
-
-# Outputs eval/results_*.{md,json} with real response_quality
+```powershell
+Copy-Item .env.example .env
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
-## Folder map
+### 2. 配置服务
 
-```
-src/      state.py  graph.py  graph_runner.py  nodes.py  llm.py  metrics.py
-          config.py  policy.py  slack_router.py  feishu_handler.py  pii.py
-          email_listener.py  slack_handler.py  mcp_client.py  server.py
-src/agents/  base.py  researcher.py  drafter.py  critic.py        # v4 multi-agent
-mcp_server/  support_read.py  support_email_write.py  support_feishu_write.py
-data/     acme_policies.md  customers_seed.json
-          bitext_eval_10.csv  bitext_eval_27.csv
-data/prompts/  classify_system.md  drafter_system.md  critic_system.md
-               researcher_system.md  summarize_system.md
-eval/     run_experiments.py  evaluators.py  dataset.py  bitext_dataset.py
-          adversarial_dataset.py  adversarial_evaluators.py  cross_judge.py
-          critic_intercept.py  stats.py
-          METHODOLOGY.md  bitext_findings.md  bitext27_findings.md  discussion.md
-          results_curated_{v3,v4}.{md,json}  results_bitext_{v3,v4}.{md,json}
-          results_bitext27_{v3,v4}.{md,json}  results_adversarial_{v3,v4}.{md,json}
-          results_v3_live.{md,json}  results_v4_live.{md,json}  results_v3_offline.{md,json}
-tests/    test_policy.py  test_slack_router.py  test_feishu_adapter.py  test_pii.py  test_resume.py
-          test_slack_handler.py  test_integration_smoke.py  test_mcp_subprocess_boot.py
-          test_email_idempotency.py  test_critic_invariants.py  test_v4_integration.py
-          test_v4_integration_smoke.py  test_security_email_handling.py
-          test_metrics.py  test_drafter_critic_loop.py
-          (159 total across both flag modes)
-docs/     architecture.md  threat_model.md  v4_multiagent.md
-deploy/   prometheus.yml  grafana/  README.md                   # docker-compose observability stack
-demo/     v4_critic_intercept.md                                # demo scripts (videos TBD)
-.github/  workflows/ci.yml  PULL_REQUEST_TEMPLATE.md  ISSUE_TEMPLATE/{bug_report,feature_request}.md
-scripts/  preflight_smoke.py                                    # credential pre-flight probe
+在 .env 中填写模型、企业邮箱和飞书应用配置。不要把真实密钥提交到 GitHub。
+
+```dotenv
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=你的模型密钥
+
+# 腾讯企业邮箱；改成 netease 可切换为网易企业邮箱
+EMAIL_PROVIDER=tencent
+EMAIL_USER=support@yourcompany.com
+EMAIL_APP_PASSWORD=邮箱客户端授权码
+
+APPROVAL_PROVIDER=feishu
+FEISHU_APP_ID=cli_xxx
+FEISHU_APP_SECRET=你的飞书应用密钥
+FEISHU_RECEIVE_ID_TYPE=chat_id
+FEISHU_RECEIVE_ID=oc_xxx
+FEISHU_VERIFICATION_TOKEN=飞书回调验证令牌
 ```
 
-## What's deferred (honest list)
+腾讯和网易的服务器地址、端口已经写入 .env.example。邮箱要开启 IMAP/SMTP，并使用客户端授权码，不要直接使用网页登录密码。飞书应用需要启用机器人，并授予发送消息和接收事件所需权限。
 
-- **v1 / v2 ablations** — would need separate graph variants run on the same dataset; cut to fit the build window and avoid any temptation to invent numbers
-- **Demo videos** — durable-execution kill-restart, approve-with-edits, SLA timeout. Scripts are ready (see [`spec.md`](./spec.md) §13); recording the Tencent/NetEase enterprise mailbox → Feishu approval → enterprise-mail reply path remains a manual step
-- **Additional Feishu groups** — per-intent Feishu chat IDs are configuration additions to `slack_router.py`, not architecture changes
-- **External-benchmark eval (Bitext)** — a real 10-ticket Bitext eval now exists: 10 of Bitext's SaaS-adjacent intents, run live through both v3 and v4 (`eval/bitext_dataset.py`, data frozen in `data/bitext_eval_10.csv`, full write-up in [`eval/bitext_findings.md`](./eval/bitext_findings.md)). It confirmed v3≈v4 and showed intent accuracy drops to 50–60% on real external text vs ~70% on the hand-curated set (escalation precision stayed at 90–100% on both — different metric, different story). Still partial — 10 of Bitext's 27 intents, n=10; the 27-intent breadth eval that exposed v3's dangerous false-auto-sends (see `eval/bitext27_findings.md`) is the next step beyond this row
-- **Postgres production checkpointer** — SQLite is sufficient for single-writer demo; AsyncPostgresSaver is a one-line swap
-- **Webhook-based inbound mail** — IMAP IDLE works for demo; SES / SendGrid Parse / Postmark for production scale
-- **Online evals** — current 10-ticket eval is offline; sampling layer over live traces is future work
+### 3. 运行测试
 
-## Source-of-truth docs
+```powershell
+pytest
+python -m eval.run_experiments --no-llm
+```
 
-| File | When to open |
-|---|---|
-| [`spec.md`](./spec.md) | Build spec — scope, sign-off criteria, full state schema (§5), implementation rules (§6.5) |
-| [`docs/architecture.md`](./docs/architecture.md) | Mermaid diagrams, key design points, failure modes, env-var table, codebase map, observability |
-| [`HOW_IT_WORKS.md`](./HOW_IT_WORKS.md) | End-to-end product narrative — paste into demo walk-throughs |
-| [`adviserplan.md`](./adviserplan.md) | v3 — the 6-10h delegation plan (advisor-hardened) |
-| [`docs/v4_multiagent.md`](./docs/v4_multiagent.md) | **v4 spec amendment** — Researcher + Drafter↔Critic architecture lock + invariants |
-| [`eval/METHODOLOGY.md`](./eval/METHODOLOGY.md) | **Eval methodology** — three layers (contracts/empirical/adversarial), CIs, what's deferred |
-| [`docs/threat_model.md`](./docs/threat_model.md) | **STRIDE threat model** — asset list + per-threat existing mitigation + honest residual-risk register |
-| [`CLAUDE.md`](./CLAUDE.md) | Project memory — invariants and non-negotiable rules |
+### 4. 启动服务
 
----
+```powershell
+python -m src.server
+```
 
-Built in a 6-10h Claude Code sprint with delegated sub-agents (Sonnet 4.6) for parallel tracks, Opus 4.7 for the integration backbone. See `adviserplan.md` for the strategy.
+启动后，服务会监听企业邮箱；飞书回调地址为：
+
+```text
+POST /feishu/events
+```
+
+真实飞书事件订阅通常需要可访问的 HTTPS 地址。仅在本机测试时，可以使用安全的内网穿透或测试环境网关，并注意不要暴露邮箱密钥和个人信息。
+
+## 费用说明
+
+本项目代码采用 MIT 许可证，本身可以免费使用。实际运行是否产生费用，取决于外部服务的选择：
+
+- 企业邮箱：取决于腾讯企业邮箱或网易企业邮箱的版本和账号数量。
+- 大模型：取决于 OpenRouter、OpenAI 或其他模型服务的调用量；本地无模型密钥时只能运行不调用模型的测试。
+- 飞书：测试企业和应用能力以飞书当前规则为准。
+- LangSmith、服务器和 HTTPS 内网穿透：只在启用对应能力时产生潜在费用。
+
+## 项目结构
+
+```text
+src/                 主流程、邮箱、飞书回调、策略和可观测性
+src/agents/          v4 Researcher、Drafter、Critic
+mcp_server/          读取、邮件发送、飞书审批三个 MCP 服务
+data/                政策、客户种子数据和评估数据
+eval/                离线评估、对抗评估和结果分析
+tests/               单元测试与端到端集成测试
+docs/                架构、威胁模型和中文流程文档
+deploy/              Prometheus 与 Grafana 配置
+```
+
+## 重要说明
+
+“ReplyGuard｜人机协同客服 Agent”是项目对外展示名称。为保证现有导入路径、历史记录和部署脚本继续可用，仓库目录、Python 包和部分兼容字段仍保留 hitl-support-agent 或旧版 Slack 命名；这些属于内部兼容标识，不影响默认使用腾讯/网易企业邮箱和飞书。
+
+完整构建约束、失败模式和安全边界请先阅读 spec.md、HOW_IT_WORKS.zh-CN.md 和 docs/threat_model.md。
