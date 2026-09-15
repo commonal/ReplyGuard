@@ -11,8 +11,14 @@ be SPAWNED via the MCP stdio handshake; we do NOT call any tools.
 
 from __future__ import annotations
 
+import sys
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+
 import pytest
 
+import src.mcp_client as mcp_client
 from src.mcp_client import MCPClientRouter
 
 
@@ -34,3 +40,42 @@ async def test_mcp_router_spawns_all_three_servers() -> None:
         assert router.read is not None, "Read MCP server failed to spawn"
         assert router.email is not None, "Email MCP server failed to spawn"
         assert router.slack is not None, "Slack MCP server failed to spawn"
+
+
+@pytest.mark.asyncio
+async def test_mcp_subprocess_uses_repository_root_as_working_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MCP children must resolve imports from the repository package root."""
+    captured: dict[str, object] = {}
+
+    @asynccontextmanager
+    async def fake_stdio(server_params: object, **_kwargs: object):
+        captured["server_params"] = server_params
+        yield (object(), object())
+
+    class FakeSession:
+        def __init__(self, *_streams: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeSession":
+            return self
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            return None
+
+        async def initialize(self) -> None:
+            return None
+
+    monkeypatch.setattr(mcp_client, "stdio_client", fake_stdio)
+    monkeypatch.setattr(mcp_client, "ClientSession", FakeSession)
+
+    async with mcp_client._make_session(sys.executable, str(mcp_client._EMAIL_SERVER)):
+        pass
+
+    server_params = captured["server_params"]
+    assert Path(server_params.cwd).resolve() == Path(mcp_client.__file__).resolve().parent.parent
+    python_path = (server_params.env or {}).get("PYTHONPATH", "")
+    assert str(Path(mcp_client.__file__).resolve().parent.parent) in python_path.split(
+        os.pathsep
+    )

@@ -226,7 +226,10 @@ def _form_element(buttons: list[dict[str, Any]], draft: str) -> dict[str, Any]:
                 "content": "请输入要发送给客户的回复",
             },
             "value": draft,
-            "max_length": 6000,
+            # The legacy Feishu input component rejects the 6000-character
+            # limit used by the old Slack modal. Keep the editable draft
+            # within the legacy card component's accepted range.
+            "max_length": 1000,
         },
         {
             "tag": "input",

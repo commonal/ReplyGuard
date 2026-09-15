@@ -11,13 +11,21 @@ The callback contract intentionally matches ``src.slack_handler``:
 * Approve -> ``{"action": "approve", "approver_id": ...}``
 * Edit -> ``{"action": "edit", "edited_draft": ..., "approver_id": ...}``
 * Reject -> ``{"action": "reject", "reason": ..., "approver_id": ...}``
+
+URL verification uses the application verification token. The old form-card
+callback protocol has a message update token in its JSON body and authenticates
+the request with Feishu's ``X-Lark-*`` SHA-1 signature headers, so the HTTP
+route has a test-tenant opt-in compatibility switch for that protocol.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from src.config import settings
@@ -45,6 +53,34 @@ def verify_feishu_verification_token(
         return True
     actual = _token_from_body(body)
     return bool(actual) and actual == expected
+
+
+def verify_feishu_card_signature(
+    headers: Mapping[str, str], body: bytes, verification_token: str | None = None
+) -> bool:
+    """Verify the HTTP signature used by legacy message-card callbacks.
+
+    The legacy ``card.action.trigger_v1`` protocol does not put the
+    application Verification Token in the JSON action payload. Feishu signs
+    the raw request body with the timestamp, nonce, and Verification Token
+    using SHA-1 instead. The raw bytes must be used; parsing and re-serializing
+    JSON would change the signature input.
+    """
+    expected = (
+        verification_token
+        if verification_token is not None
+        else settings.feishu_verification_token
+    )
+    if not expected:
+        return True
+    timestamp = headers.get("X-Lark-Request-Timestamp", "")
+    nonce = headers.get("X-Lark-Request-Nonce", "")
+    signature = headers.get("X-Lark-Signature", "")
+    if not timestamp or not nonce or not signature:
+        return False
+    signing_input = (timestamp + nonce + expected).encode("utf-8") + body
+    calculated = hashlib.sha1(signing_input).hexdigest()
+    return hmac.compare_digest(calculated, signature)
 
 
 def _action_node(body: dict[str, Any]) -> dict[str, Any]:
@@ -87,6 +123,7 @@ def _operator_id(body: dict[str, Any]) -> str:
         or operator.get("user_id")
         or operator.get("union_id")
         or event.get("operator_id", "")
+        or body.get("open_id", "")
         or body.get("user_id", "")
     )
 
@@ -172,5 +209,6 @@ async def handle_feishu_event(body: dict[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "handle_feishu_event",
+    "verify_feishu_card_signature",
     "verify_feishu_verification_token",
 ]

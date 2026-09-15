@@ -35,11 +35,48 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _unseen_search_criteria() -> tuple[str, ...]:
+    """Return UNSEEN search criteria, optionally narrowed for a test run."""
+    subject = settings.imap_subject_filter.strip()
+    if not subject:
+        return ("UNSEEN",)
+    escaped = subject.replace("\\", "\\\\").replace('"', '\\"')
+    return ("UNSEEN", "SUBJECT", f'"{escaped}"')
+
+
+async def _message_subject(
+    client: aioimaplib.IMAP4_SSL, msg_id: bytes, subject_filter: str
+) -> str:
+    """Read only the Subject header for an optional test-only local guard."""
+    if not subject_filter:
+        return subject_filter
+    typ, data = await client.fetch(
+        msg_id.decode(), "(BODY.PEEK[HEADER.FIELDS (SUBJECT)])"
+    )
+    if typ != "OK" or not data:
+        return ""
+    for item in data:
+        if not isinstance(item, (bytes, bytearray)) or b":" not in item:
+            continue
+        try:
+            header = stdlib_email.message_from_bytes(bytes(item))
+        except (TypeError, ValueError):
+            continue
+        subject = _decode_header(header.get("Subject"))
+        if subject:
+            return subject
+    return ""
+
+
 def _decode_header(raw: str | bytes | None) -> str:
     #解码邮件主题、发件人编码
     if raw is None:
         return ""
-    parts = decode_header(raw if isinstance(raw, str) else raw.decode("utf-8", errors="replace"))
+    # `email.message.Message.get()` may return an email.header.Header object
+    # under the default compat32 policy. Normalise non-bytes through str()
+    # before handing the value to decode_header().
+    value = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+    parts = decode_header(value)
     out = []
     for chunk, enc in parts:
         if isinstance(chunk, bytes):
@@ -231,11 +268,18 @@ async def _poll_loop(on_ticket: Any) -> None:
 
 async def _fetch_unseen(client: aioimaplib.IMAP4_SSL, on_ticket: Any) -> None:
     #IMAP 协议：`SEARCH`成功时，`data[0]` 是空格分隔的邮件数字编号字符串，例如 `b'12 13 14'`；没有未读邮件时 `data[0]` 是空字节串 `b''`。
-    typ, data = await client.search("UNSEEN")   #命令响应状态字符串，响应载荷
+    typ, data = await client.search(*_unseen_search_criteria())   #命令响应状态字符串，响应载荷
     if typ != "OK" or not data or not data[0]:
         return
     ids = data[0].split() #拿到所有未读邮件编号
+    subject_filter = settings.imap_subject_filter.strip()
+    max_messages = max(0, settings.imap_max_messages)
+    processed_messages = 0
     for msg_id in ids:
+        if subject_filter:
+            subject = await _message_subject(client, msg_id, subject_filter)
+            if subject_filter not in subject:
+                continue
         typ, msg_data = await client.fetch(msg_id.decode(), "(RFC822)")
         if typ != "OK" or not msg_data:
             continue
@@ -245,7 +289,23 @@ async def _fetch_unseen(client: aioimaplib.IMAP4_SSL, on_ticket: Any) -> None:
                 ticket = parse_email_to_ticket(bytes(item))
                 ticket_id, state = ticket_to_initial_state(ticket)
                 log.info("Inbound email -> ticket %s", ticket_id)
-                await on_ticket(ticket_id, state) #这里是同步的
+                try:
+                    await on_ticket(ticket_id, state) #这里是同步的
+                except Exception:
+                    # A poison message must not be re-read on every IMAP
+                    # reconnect. The failed ticket is logged with its stable
+                    # ticket_id; operators can resend it after fixing the
+                    # downstream failure.
+                    log.exception(
+                        "Ticket %s failed; marking message %s as Seen to avoid duplicate processing",
+                        ticket_id,
+                        msg_id.decode(),
+                    )
+                finally:
+                    # Mark as Seen after the processing attempt so a callback
+                    # or model failure cannot create duplicate tickets.
+                    await client.store(msg_id.decode(), "+FLAGS", "(\\Seen)")
+                processed_messages += 1
+                if max_messages and processed_messages >= max_messages:
+                    break
                 break
-        # Mark as Seen so we don't re-process on reconnect.
-        await client.store(msg_id.decode(), "+FLAGS", "(\\Seen)")

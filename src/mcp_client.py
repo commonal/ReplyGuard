@@ -45,6 +45,7 @@ from src.config import settings
 # Path to server scripts (Windows-friendly)
 # ---------------------------------------------------------------------------
 _MCP_DIR = pathlib.Path(__file__).parent.parent / "mcp_server"
+_REPO_ROOT = _MCP_DIR.parent
 _READ_SERVER   = _MCP_DIR / "support_read.py"
 _EMAIL_SERVER  = _MCP_DIR / "support_email_write.py"
 _SLACK_SERVER  = _MCP_DIR / "support_slack_write.py"
@@ -410,10 +411,19 @@ async def _make_session(
     # load_dotenv() in src/server.py — pass them through explicitly.
     import os
 
+    child_env = dict(os.environ)
+    repo_root = str(_REPO_ROOT)
+    python_path_entries = [
+        entry for entry in child_env.get("PYTHONPATH", "").split(os.pathsep) if entry
+    ]
+    if repo_root not in python_path_entries:
+        child_env["PYTHONPATH"] = os.pathsep.join([repo_root, *python_path_entries])
+
     server_params = StdioServerParameters(
         command=python,
         args=[script_path],
-        env=dict(os.environ),
+        env=child_env,
+        cwd=str(_REPO_ROOT),
     )
     async with stdio_client(server_params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:

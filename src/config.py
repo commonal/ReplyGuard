@@ -132,6 +132,13 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("FEISHU_ENCRYPT_KEY"),
     )
+    # The old Feishu card callback protocol has a different payload shape and
+    # SHA-1 request-signature check. Keep shape compatibility opt-in; the
+    # callback signature is still required whenever a verification token is set.
+    feishu_legacy_card_callback_compat: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("FEISHU_LEGACY_CARD_CALLBACK_COMPAT"),
+    )
     feishu_api_base_url: str = Field(
         default="https://open.feishu.cn/open-apis",
         validation_alias=AliasChoices("FEISHU_API_BASE_URL"),
@@ -185,6 +192,16 @@ class Settings(BaseSettings):
     max_send_retries: int = 3
     sla_deadline_hours: int = 24
     imap_poll_interval_sec: int = 30
+    # Optional test-only narrowing of the IMAP UNSEEN search. When set, the
+    # listener processes only messages whose subject contains this value.
+    imap_subject_filter: str = Field(
+        default="",
+        validation_alias=AliasChoices("IMAP_SUBJECT_FILTER"),
+    )
+    imap_max_messages: int = Field(
+        default=0,
+        validation_alias=AliasChoices("IMAP_MAX_MESSAGES"),
+    )
 
     # ---- Server ----
     # Default to loopback only (127.0.0.1) — safer default for dev. Deployment

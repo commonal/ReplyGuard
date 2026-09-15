@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -43,7 +44,11 @@ from src import graph_runner  # noqa: E402
 from src import metrics as _metrics  # noqa: E402, F401
 from src.config import settings  # noqa: E402
 from src.email_listener import listen_forever  # noqa: E402
-from src.feishu_handler import handle_feishu_event, verify_feishu_verification_token  # noqa: E402
+from src.feishu_handler import (  # noqa: E402
+    handle_feishu_event,
+    verify_feishu_card_signature,
+    verify_feishu_verification_token,
+)
 from src.slack_handler import get_app, run_socket_mode  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -208,17 +213,59 @@ async def slack_events(req: Request) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _is_legacy_feishu_card_action(body: dict[str, Any]) -> bool:
+    """Recognise the old form-card action shape used by the test tenant.
+
+    Feishu has emitted this callback both nested under ``event`` and as a
+    top-level ``action`` object.  This helper only classifies the payload;
+    the caller still verifies the signed raw request before dispatching it.
+    """
+    event = body.get("event")
+    action = event.get("action") if isinstance(event, dict) else body.get("action")
+    if not isinstance(action, dict):
+        return False
+    raw_value = action.get("value")
+    if isinstance(raw_value, dict):
+        value = raw_value
+    elif isinstance(raw_value, str):
+        try:
+            parsed_value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(parsed_value, dict):
+            return False
+        value = parsed_value
+    else:
+        return False
+    action_name = str(
+        value.get("action")
+        or value.get("decision")
+        or action.get("name")
+        or ""
+    ).lower().removesuffix("_button")
+    thread_id = value.get("thread_id") or value.get("ticket_id")
+    return action_name in {"approve", "edit", "reject"} and bool(thread_id)
+
+
 @app.post("/feishu/events")
 async def feishu_events(req: Request) -> Any:
     if settings.approval_provider.lower() != "feishu":
         return JSONResponse({"error": "Feishu approval provider is disabled"}, status_code=503)
     try:
-        body = await req.json()
+        raw_body = await req.body()
+        body = json.loads(raw_body)
     except ValueError:
         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
     if not isinstance(body, dict):
         return JSONResponse({"error": "JSON body must be an object"}, status_code=400)
-    if not verify_feishu_verification_token(body):
+    legacy_card_compat = (
+        settings.feishu_legacy_card_callback_compat
+        and _is_legacy_feishu_card_action(body)
+    )
+    if legacy_card_compat:
+        if not verify_feishu_card_signature(req.headers, raw_body):
+            return JSONResponse({"error": "invalid Feishu card signature"}, status_code=401)
+    elif not verify_feishu_verification_token(body):
         return JSONResponse({"error": "invalid Feishu verification token"}, status_code=401)
     try:
         return await handle_feishu_event(body)
