@@ -24,7 +24,7 @@
 
 ### Layer 1 — Behavior contracts (`tests/`)
 
-148 passing tests at the time of writing (`pytest -q`). Notable invariant
+166 passing tests at the time of writing (`pytest -q`). Notable invariant
 tests:
 
 - [`tests/test_critic_invariants.py`](../tests/test_critic_invariants.py)
@@ -35,7 +35,10 @@ tests:
 - [`tests/test_pii.py`](../tests/test_pii.py) — PII redact at entry,
   restore in `finalize_action`. The LLM never sees raw emails / names.
 - [`tests/test_policy.py`](../tests/test_policy.py) — Gate 1 (policy risk)
-  and Gate 2 (confidence) behaviour. 36 tests.
+  and Gate 2 (confidence) behaviour. 38 tests.
+- [`tests/test_feishu_adapter.py`](../tests/test_feishu_adapter.py) — 9 tests
+  over the Feishu approval adapter: card/action extraction, verification-token
+  checks, and the Approve / Edit / Reject resume payloads.
 - [`tests/test_slack_router.py`](../tests/test_slack_router.py) — the
   3-channel priority router (`#support-legal` > `#support-enterprise` >
   `#support-complaints` > intent-based default).

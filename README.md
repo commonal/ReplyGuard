@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
-[![测试](https://img.shields.io/badge/tests-159%2F159-brightgreen)](#测试)
+[![测试](https://img.shields.io/badge/tests-166%2F166-brightgreen)](#测试)
 
 ReplyGuard 是一个面向企业邮箱的 AI 客服 Agent。它可以读取客户邮件、生成回复草稿，并在退款、投诉、愤怒客户或策略不明确等高风险场景下暂停，将审批卡片发送到飞书测试企业，由人工决定批准、修改或拒绝后再继续处理。
 
@@ -53,8 +53,10 @@ ReplyGuard 是一个面向企业邮箱的 AI 客服 Agent。它可以读取客�
 ## 当前状态
 
 - v3 单 Agent 流程和 v4 多 Agent 流程均保留，可通过环境变量切换。
-- v4 包含 Researcher、Drafter 和 Critic 三类 Agent，并使用有界修订循环。
-- 当前测试：**159 / 159 通过**。
+- v4 包含 Researcher、Drafter 和 Critic 三类 Agent，并使用有界修订循环（Critic 仅可下调草稿置信度，不可上调）。
+- 默认走 **v4**：`MULTIAGENT_ENABLED` 默认值为 `1`。
+- 10 条基准集上 v3 与 v4 打平（1 条之差，n=10 属噪声）；差异出现在更大的集合上——**27 类宽度评测 + 25 条对抗红队中，v4 拦下 v3 漏掉的 6 条危险误放行中的 5 条（绝对数 6 → 1）**，并多拦 3 条分类器陷阱，代价是单条 token 成本约 2 倍。这正是默认翻到 v4 的原因。
+- 当前测试：**166 / 166 通过**。
 - 27 类 Bitext 宽度评估已经暴露出分类器在部分非目标场景下仍可能误判，不能把当前版本当作无需人工监督的生产系统。
 
 切换版本：

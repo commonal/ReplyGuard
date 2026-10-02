@@ -291,7 +291,7 @@ What used to be a single LLM call is now a tight two-agent sub-graph. The **Draf
 
 ### What this looked like under live eval
 
-We ran 10 tickets through both v3 and v4 with real LLM calls. **`false_auto_send_rate` stayed at 0% under both modes** — the deterministic safety contract held. One ticket (`eval-t07`, a high-confidence info question) flipped from auto-send under v3 to escalated under v4 — the Critic lowered `draft_confidence` below Gate 2's 0.85 threshold. v4 trades a small drop in escalation precision for an additional Critic pass over every draft, without weakening the deterministic safety contract.
+We ran 10 tickets through both v3 and v4 with real LLM calls. **`false_auto_send_rate` stayed at 0% under both modes** — the deterministic safety contract held. One ticket (`eval-t07`, a high-confidence info question) flipped from auto-send under v3 to escalated under v4 — the Critic lowered `draft_confidence` below Gate 2's 0.85 threshold. On that 10-ticket set v3 and v4 tie; one ticket separates them, which is inside the noise at n=10. The difference shows up on the wider sets: across the 27-intent breadth eval and the 25-ticket adversarial grid, **v4 caught 5 of the 6 dangerous false auto-sends that v3 missed** (absolute count 6 → 1) plus 3 additional classifier-trap cases — that is what drove the default flip to v4. The cost of that safety gain is roughly **2× tokens per ticket**, and v4 over-escalates some simple FAQs.
 
 ### What v4 didn't change
 

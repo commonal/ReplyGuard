@@ -708,7 +708,7 @@ support-agent/
 
 **Hours 13-16: LangSmith**
 - Tracing enabled
-- 50-ticket dataset uploaded
+- eval dataset: 10 curated tickets (one per code path) + 10/27 Bitext rows
 - 5 evaluators built
 - Eval suite runs
 
@@ -883,7 +883,7 @@ Cut for 24h scope:
 - ❌ Multi-model routing (single model)
 - ❌ Multi-agent critique (single drafter)
 - ❌ Live deployment (local demo)
-- ❌ Online evals (offline only on 50 tickets)
+- ❌ Online evals (offline eval runs over 10 curated + 10/27 Bitext tickets)
 - ❌ RBAC / auth (skip)
 - ❌ Shadow mode backtesting
 
@@ -962,7 +962,7 @@ v4 ships a 3-agent reasoning layer (Researcher, Drafter, Critic) as compiled Lan
 
 ### Honest finding (eval-t07)
 
-Ticket `eval-t07` is a `basic_technical` / `info` intent that v3 auto-sent at high confidence. In v4, the Critic flagged a minor grounding concern and emitted a non-zero `severity`, which lowered `draft_confidence` below Gate 2's 0.85 threshold and routed the ticket to human approval. v4 trades one auto-send-eligible ticket for an additional Critic pass over every draft — a small, documented drop in escalation precision (100% → 90%) in exchange for an extra layer of pre-send review. The safety invariant (`false_auto_send_rate = 0%`) held in both versions.
+Ticket `eval-t07` is a `basic_technical` / `info` intent that v3 auto-sent at high confidence. In v4, the Critic flagged a minor grounding concern and emitted a non-zero `severity`, which lowered `draft_confidence` below Gate 2's 0.85 threshold and routed the ticket to human approval. On the 10-ticket set v3 and v4 therefore tie (one ticket separates them — inside the noise at n=10). The measured advantage appears on the wider sets: across the 27-intent breadth eval and the 25-ticket adversarial grid, v4 caught 5 of the 6 dangerous false auto-sends that v3 missed (absolute count 6 → 1) plus 3 additional classifier-trap cases, at a cost of roughly 2× tokens per ticket. The safety invariant (`false_auto_send_rate = 0%`) held in both versions on the 10-ticket sets.
 
 ### Cross-links
 
