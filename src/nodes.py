@@ -110,6 +110,75 @@ def _client() -> Any:
     return get_mcp_router()
 
 
+#: Cap for the customer message shown on the approval card. The card exists so
+#: a reviewer can decide quickly whether the draft answers the customer — not to
+#: reproduce the whole mail. A long thread buries the draft and the buttons, so
+#: this is deliberately well below Feishu's size ceiling. The full text is still
+#: in the ticket; the card says so when it cuts.
+_CUSTOMER_MESSAGE_CARD_LIMIT = 1200
+
+
+def _customer_message_body(state: AgentState) -> str:
+    """The customer's message without the header lines email_listener prepended.
+
+    `customer_message` is `"From: ...\\nSubject: ...\\n\\n<body>"`. Both header
+    lines are redundant on the card: the ticket header already carries the
+    intent and the "Reply will go to" field already carries the address.
+    """
+    msg = (state.get("customer_message") or "").strip()
+    if not msg:
+        return ""
+    if "\n\n" in msg:
+        head, body = msg.split("\n\n", 1)
+        # Only strip when the head really is the listener's header block; a body
+        # that legitimately contains a blank line must survive intact. `all()`
+        # over an empty sequence is True, so a leading blank line leaves the
+        # message untouched.
+        head_lines = [ln.strip() for ln in head.splitlines()]
+        if all(
+            ln.lower().startswith(("from:", "subject:", "to:", "date:"))
+            for ln in head_lines
+            if ln
+        ):
+            return body.strip()
+    return msg
+
+
+def _truncate_for_card(text: str, limit: int = _CUSTOMER_MESSAGE_CARD_LIMIT) -> tuple[str, bool]:
+    """Trim to fit the card, preferring a line boundary.
+
+    Returns the text and whether it was cut, so the caller can say so in the
+    card without this helper needing to know the ticket id.
+    """
+    if len(text) <= limit:
+        return text, False
+    clipped = text[:limit]
+    newline = clipped.rfind("\n", limit // 2)
+    clipped = clipped[:newline] if newline != -1 else clipped.rstrip()
+    return clipped, True
+
+
+def _customer_message_block(state: AgentState, ticket_id: str) -> str:
+    """The "Customer message" card section, or "" when there is nothing to show.
+
+    The body is quoted so it reads as the customer's own words. The truncation
+    note is deliberately NOT quoted: a quoted line looks like part of the
+    message, and attributing our own footnote to the customer would mislead the
+    approver about what they were sent.
+    """
+    body = _customer_message_body(state)
+    if not body:
+        return ""
+    body, truncated = _truncate_for_card(body)
+    quoted = "\n".join(f"> {line}" if line.strip() else ">" for line in body.splitlines())
+    text = f"*Customer message*\n{quoted}"
+    if truncated:
+        text += (
+            f"\n\n_⚠️ 原文较长，此处截断；完整内容见工单 {ticket_id} 的审计记录_"
+        )
+    return text
+
+
 def _build_approval_blocks(state: AgentState, kb_quote: str) -> list[dict[str, Any]]:
     """Build the stable approval payload consumed by the Feishu adapter.
 
@@ -119,6 +188,7 @@ def _build_approval_blocks(state: AgentState, kb_quote: str) -> list[dict[str, A
     The message contains:
       - Ticket header (id + intent + customer email)
       - "Why I paused" panel — risk flags + confidence + policy match
+      - Customer message (redacted, truncated) — what the draft must answer
       - KB justification quote (verbatim ACME policy sentence)
       - Draft reply (expandable)
       - Approve / Edit / Reject buttons (action ids match the callback adapter)
@@ -174,7 +244,26 @@ def _build_approval_blocks(state: AgentState, kb_quote: str) -> list[dict[str, A
             "block_id": f"{ticket_id}-why",
             "text": {"type": "mrkdwn", "text": "*Why I paused*\n" + "\n".join(why_lines)},
         },
+        # The reviewer's actual job is "is this draft a good answer to what the
+        # customer asked?". Without the customer's own words the card only
+        # shows metadata and the draft, so the decision cannot be made — the
+        # approver has to go find the original mail. Placed before the draft so
+        # the card reads question-then-answer.
+        #
+        # Already redacted by pii_redact_node, which is correct here: the
+        # approver needs the content, not the customer's real address (which
+        # the "Reply will go to" field already carries, so spoofing stays
+        # detectable).
     ]
+    customer_block = _customer_message_block(state, ticket_id)
+    if customer_block:
+        blocks.append(
+            {
+                "type": "section",
+                "block_id": f"{ticket_id}-customer",
+                "text": {"type": "mrkdwn", "text": customer_block},
+            }
+        )
     if kb_quote:
         blocks.append(
             {
