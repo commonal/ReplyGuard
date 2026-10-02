@@ -178,6 +178,8 @@ Every failure has an explicit handling path. None are silent.
 | LangSmith down | Agent continues. Traces buffer locally, replay when LangSmith returns. Observability outage does not break user flow. |
 | LLM rate-limited or timing out | Single retry with backoff. Second failure → escalate to human (treat as low confidence). |
 | Hash unchanged but human delays >24h | SLA expires anyway. Manual Queue. Time-based override of staleness check. |
+| Context keeps changing on every revalidation | After `MAX_REVALIDATIONS` rounds the ticket routes to Manual Queue instead of re-reading the context again. The customer gets the acknowledgement mail either way. |
+| Context drifts, then settles | The re-prompt resets the elapsed baseline, so approving the second card sends immediately rather than revalidating once more. |
 
 ## How this maps to the codebase
 
@@ -205,10 +207,12 @@ Every failure has an explicit handling path. None are silent.
 
 | Env var | Default | What it controls |
 |---|---|---|
-| `REVALIDATE_THRESHOLD_MIN` | 15 | Minutes after which an approval triggers context revalidation before send |
+| `REVALIDATE_THRESHOLD_MIN` | 15 | Minutes after which an approval triggers context revalidation before send. Measured from `approval_requested_at`, which is refreshed on every re-prompt, so a second decision is timed from the card the human actually answered |
+| `MAX_REVALIDATIONS` | 3 | Context revalidations that found a change before routing to Manual Queue — bounds a context that keeps drifting |
 | `MAX_HUMAN_REJECTIONS` | 3 | Reject count that flips redraft loop to Manual Queue |
 | `MAX_SEND_RETRIES` | 3 | Transient-failure retry cap before `failed_manual` |
-| `SLA_DEADLINE_HOURS` | 24 | Hours of human silence before SLA expires to Manual Queue |
+| `SLA_DEADLINE_HOURS` | 24 | Hours of human silence before SLA expires to Manual Queue. Refreshed on every re-prompt, so each round gets a full window |
+| `SLA_SWEEP_INTERVAL_SEC` | 60 | How often the SLA watchdog checks for overdue approval requests |
 | `IMAP_POLL_INTERVAL_SEC` | 30 | Polling fallback when IMAP IDLE is unavailable |
 | `MULTIAGENT_ENABLED` | 1 | `1` enables v4 (Researcher + Drafter↔Critic); `0` runs v3 single-agent |
 | `HOST` | `127.0.0.1` | FastAPI bind. Loopback by default. Production / container deploys must set `HOST=0.0.0.0` (see `docs/threat_model.md` row A5). |

@@ -258,6 +258,7 @@ def build_full_graph_builder() -> StateGraph[AgentState]:
             "reject_increment": "reject_increment",
             "finalize": "finalize",
             "revalidate_context": "revalidate_context",
+            "manual_queue": "manual_queue",
         },
     )
 
@@ -278,6 +279,7 @@ def build_full_graph_builder() -> StateGraph[AgentState]:
         {
             "summarize_changes": "summarize_changes",
             "finalize": "finalize",
+            "manual_queue": "manual_queue",
         },
     )
 

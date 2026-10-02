@@ -2,7 +2,20 @@
      这是给上游仓库 Ranith36963/hitl-support-agent 的 issue 草稿，纯反馈、不带代码改动。
      标题 + 正文均为英文（仓库语言）。确认无误后告诉我，我走 7890 代理帮你提交；
      如果你想自己发，直接复制标题和分隔线以下的内容到 GitHub New Issue 即可。
-     观察基于 main @ d970975（当前 origin/main HEAD）。-->
+     观察基于 main @ d970975（当前 origin/main HEAD）。
+
+     ▶ 本地状态（2026-10-02）：已在本地仓库修复，并补上首个覆盖该分支的回归测试。
+       修复提交：见 `git log`，改动 `src/state.py`、`src/nodes.py`；
+       新增测试 `tests/test_revalidate_baseline.py`（13 项）。
+       若要向上游提交，正文下方"Suggested minimal fix"已与实现一致；
+       可在结尾追加"already fixed locally, happy to send the PR"的说明。-->
+
+> **本地已修复（2026-10-02）。** 保留了原始报告全文作为历史记录。
+> 实现方式：新增显式状态字段 `approval_requested_at`，在首次发卡和每次
+> `summarize_changes` 重新提示时刷新；`route_after_action` 优先读该字段，
+> 并对旧 checkpoint 回退到"取最新一条提示"而非"第一条"。同时刷新
+> `sla_deadline`，使每轮重审都获得完整窗口。回归测试见
+> `tests/test_revalidate_baseline.py`。
 
 # Title
 

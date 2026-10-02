@@ -32,6 +32,8 @@ from typing import Any
 
 from langgraph.types import interrupt
 
+from src import approval_pending
+
 #llm调用函数
 from src.llm import (
     classify_intent,
@@ -463,6 +465,17 @@ async def slack_notification_node(state: AgentState) -> dict[str, Any]:
             text=fallback_text,
         )
     )
+    requested_at = _now_iso()
+    # Index the ticket so the SLA watchdog can find it. Without this the
+    # checkpoint is the only record of a paused ticket and nothing can sweep it.
+    approval_pending.remember(
+        thread_id=str(state.get("thread_id") or state.get("ticket_id") or ""),
+        ticket_id=str(state.get("ticket_id") or ""),
+        channel=result.channel,
+        message_ts=result.slack_message_ts,
+        deadline=sla_deadline,
+        requested_at=requested_at,
+    )
     return {
         "slack_message_ts": result.slack_message_ts,
         # Store the canonical destination returned by the provider. For Feishu
@@ -470,6 +483,9 @@ async def slack_notification_node(state: AgentState) -> dict[str, Any]:
         "slack_channel": result.channel,
         "approval_status": "pending",
         "sla_deadline": sla_deadline,
+        # Baseline for route_after_action's elapsed check: the moment this card
+        # was posted. summarize_changes refreshes it on every re-prompt.
+        "approval_requested_at": requested_at,
         "audit_log": (state.get("audit_log") or [])
         + [
             _audit(
@@ -522,23 +538,42 @@ def interrupt_gate(state: AgentState) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _latest_approval_prompt_ts(state: AgentState) -> str | None:
+    """Timestamp of the most recent approval prompt.
+
+    Fallback for tickets checkpointed before `approval_requested_at` existed.
+    Scans backwards and takes the newest `slack_notification` or
+    `summarize_changes` entry — never the first one, which is what made every
+    re-approval look like it had been waiting since the original notification.
+    """
+    for entry in reversed(state.get("audit_log") or []):
+        if entry.get("node") in ("slack_notification", "summarize_changes"):
+            ts = entry.get("ts")
+            if ts:
+                return str(ts)
+    return None
+
+
 def route_after_action(state: AgentState) -> str:
     """After the interrupt resumes, branch directly to a real node name.
 
+    - expire → manual_queue (SLA watchdog gave up waiting; no draft is sent)
     - reject → reject_increment (writes count++ then evaluates 3-strike rule)
     - approve / edit + elapsed > threshold → revalidate_context
     - approve / edit + elapsed ≤ threshold → finalize
+
+    Elapsed time is measured from the prompt the human actually answered
+    (`approval_requested_at`, refreshed on every re-prompt), not from the
+    original notification.
     """
     status = (state.get("approval_status") or "").lower()
+    if status == "expire":
+        return "manual_queue"
     if status == "reject":
         return "reject_increment" #驳回计数节点
     threshold_min = int(os.environ.get("REVALIDATE_THRESHOLD_MIN", "15"))
     ts = state.get("approval_timestamp")   #用户点击的时间点
-    notif_ts = None 
-    for e in state.get("audit_log") or []:
-        if e.get("node") == "slack_notification": 
-            notif_ts = e.get("ts") #slack发送消息的时间点
-            break
+    notif_ts = state.get("approval_requested_at") or _latest_approval_prompt_ts(state)
     if not (ts and notif_ts): # 如果找不到时间戳，说明是测试环境或简化流程，但这是不安全的
         return "finalize"
     try:
@@ -591,17 +626,38 @@ async def revalidate_context_node(state: AgentState) -> dict[str, Any]:
         "kb": kb.model_dump(),
     }
     new_hash = _hash_context(new_payload)
+    changed = new_hash != state.get("context_hash", "")
+    prior = int(state.get("revalidation_count", 0) or 0)
     return {
         "context_hash": new_hash,
-        "_revalidate_changed": new_hash != state.get("context_hash", ""),
+        "_revalidate_changed": changed,
         "_revalidate_new_snapshot": new_payload,
+        # Count only rounds that actually found a change: a stable context ends
+        # the cycle on its own, so counting those would spend the budget on
+        # no-ops. This bounds the loop when the context keeps drifting.
+        "revalidation_count": prior + (1 if changed else 0),
         "audit_log": (state.get("audit_log") or [])
-        + [_audit(state, "revalidate_context", changed=new_hash != state.get("context_hash", ""))],
+        + [
+            _audit(
+                state,
+                "revalidate_context",
+                changed=changed,
+                revalidation_count=prior + (1 if changed else 0),
+            )
+        ],
     }
 
 #路由函数，如果验证发现改变了，进入总结变化节点，如果没有发送变化就进入与发送节点
 def route_after_revalidate(state: AgentState) -> str:
-    return "summarize_changes" if state.get("_revalidate_changed") else "finalize"
+    """Changed context re-pauses for a fresh decision, but only up to
+    MAX_REVALIDATIONS rounds — otherwise a context that keeps drifting would
+    re-run the reads and the delta LLM call forever."""
+    if not state.get("_revalidate_changed"):
+        return "finalize"
+    max_revalidations = int(os.environ.get("MAX_REVALIDATIONS", "3"))
+    if int(state.get("revalidation_count", 0) or 0) >= max_revalidations:
+        return "manual_queue"
+    return "summarize_changes"
 
 
 # ---------------------------------------------------------------------------
@@ -641,9 +697,30 @@ async def summarize_changes_node(state: AgentState) -> dict[str, Any]:
                 text=f"Context changed: {delta.summary}",
             )
         )
+    requested_at = _now_iso()
+    fresh_deadline = datetime.now(UTC) + timedelta(
+        hours=int(os.environ.get("SLA_DEADLINE_HOURS", "24"))
+    )
+    # Re-point the watchdog at the renewed window, for the same reason the
+    # baseline is refreshed: the human is answering the re-prompted card.
+    approval_pending.remember(
+        thread_id=str(state.get("thread_id") or state.get("ticket_id") or ""),
+        ticket_id=str(state.get("ticket_id") or ""),
+        channel=str(state.get("slack_channel") or ""),
+        message_ts=str(state.get("slack_message_ts") or ""),
+        deadline=fresh_deadline,
+        requested_at=requested_at,
+    )
     return {
         # Reset to pending so the graph re-interrupts  重置审批状态
         "approval_status": "pending",
+        # Fresh baseline and a fresh SLA window: the human is answering THIS
+        # card, not the original one. Without this, route_after_action keeps
+        # measuring from the first notification, so >threshold stays true and
+        # every re-approval re-enters revalidate_context; the SLA clock also
+        # silently shrinks by one pause per round.
+        "approval_requested_at": requested_at,
+        "sla_deadline": fresh_deadline,
         "audit_log": (state.get("audit_log") or [])
         + [
             _audit(
@@ -680,6 +757,9 @@ def finalize_action_node(state: AgentState) -> dict[str, Any]:
                 break
 
     final_with_pii = restore(state.get("final_draft", ""), token_map)
+    # The human answered: this ticket is no longer waiting on anyone, so stop
+    # tracking it for SLA escalation.
+    approval_pending.forget(str(state.get("thread_id") or ticket_id or ""))
     return {
         "final_draft": final_with_pii,
         "send_status": "in_flight",
@@ -844,12 +924,22 @@ async def audit_log_node(state: AgentState) -> dict[str, Any]:
 @timed_node("manual_queue")
 async def manual_queue_node(state: AgentState) -> dict[str, Any]:
     max_rej = int(os.environ.get("MAX_HUMAN_REJECTIONS", "3"))
+    max_revalidations = int(os.environ.get("MAX_REVALIDATIONS", "3"))
     if state.get("send_status") == "failed_manual":
         terminal = "failed_manual"
         notice = "🚦 Send failed after retries — manual queue."
     elif state.get("human_rejection_count", 0) >= max_rej:
         terminal = "rejected"
         notice = f"🚦 {max_rej} rejections — manual queue."
+    elif (
+        state.get("_revalidate_changed")
+        and int(state.get("revalidation_count", 0) or 0) >= max_revalidations
+    ):
+        terminal = "revalidation_limit"
+        notice = (
+            f"🚦 Context kept changing across {max_revalidations} revalidations — "
+            "manual queue."
+        )
     else:
         terminal = "expired"
         notice = "🚦 SLA expired — manual queue."
@@ -877,13 +967,69 @@ async def manual_queue_node(state: AgentState) -> dict[str, Any]:
             # nicety, not a correctness contract.
             log.warning("manual_queue Slack update failed (non-fatal): %s", exc)
 
+    # Resolve the recipient FIRST: the PII clear below drops the vault entry
+    # that holds the real address, so reading it after the clear would send to
+    # the redaction placeholder or nothing at all.
     ticket_id = state.get("ticket_id", "")
+    customer_email = _customer_email_from_audit(state)
+
+    # spec.md §Manual Queue: "Customer is notified via auto-reply email that
+    # their ticket is being handled by a human". Without it the customer sees
+    # silence, which is the worst outcome of an escalation — this whole path
+    # exists because the agent gave up, so the customer must at least learn
+    # that a person now owns the ticket.
+    #
+    # A fixed template, not an LLM draft: escalation means no draft was good
+    # enough to send, so the acknowledgement must be deterministic and cannot
+    # itself go wrong. Skipped when the send already failed — the customer may
+    # have received partial mail, and stacking "we're on it" on a broken thread
+    # is worse than staying quiet.
+    notified = False
+    if terminal != "failed_manual" and customer_email not in ("", "unknown@example.com", None):
+        try:
+            client = _client()
+            ack = await client.email.send(
+                EmailSendParams(
+                    to=customer_email,
+                    subject="Re: " + _subject_from_state(state),
+                    body=(
+                        "Hello,\n\n"
+                        "Thanks for getting in touch. Your message has been received and "
+                        "has been passed to a member of our support team, who will reply to "
+                        "you directly.\n\n"
+                        "We're sorry for the wait, and we'll be in touch as soon as we can.\n\n"
+                        "— ACME Support team"
+                    ),
+                    in_reply_to=state.get("email_thread_id", ""),
+                    references=state.get("email_thread_id", ""),
+                    # Distinct from the approval send key so a ticket that was
+                    # blocked by a gate and later escalated cannot collide with
+                    # a real reply attempt.
+                    idempotency_key=f"{state.get('send_idempotency_key', '') or ticket_id}:manual-queue-ack",
+                )
+            )
+            notified = bool(ack.sent_message_id)
+        except (RuntimeError, OSError, ValueError) as exc:
+            # The terminal state is already decided; a failed courtesy mail
+            # must not change the outcome, only show up in the audit trail.
+            log.warning("manual_queue customer notice failed (non-fatal): %s", exc)
+
     if ticket_id:
         _pii_clear_ticket(ticket_id)
+    # Terminal: stop tracking this ticket for SLA escalation.
+    approval_pending.forget(str(state.get("thread_id") or ticket_id or ""))
 
     return {
         "final_state": terminal,
-        "audit_log": (state.get("audit_log") or []) + [_audit(state, "manual_queue", terminal=terminal)],
+        "audit_log": (state.get("audit_log") or [])
+        + [
+            _audit(
+                state,
+                "manual_queue",
+                terminal=terminal,
+                customer_notified=notified,
+            )
+        ],
     }
 
 

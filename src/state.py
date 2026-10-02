@@ -43,6 +43,11 @@ class AgentState(TypedDict, total=False):
     approval_status: str  # pending | approved | edited | rejected | expired | cancelled | superseded
     approver_id: str  # Slack user id
     approval_timestamp: str
+    # When the CURRENT approval prompt was posted. Refreshed on every re-prompt
+    # (summarize_changes), unlike approval_timestamp which is overwritten on
+    # every resume. route_after_action measures the human's pause from here, so
+    # a second decision is timed from the card the human actually answered.
+    approval_requested_at: str
     sla_deadline: datetime #超时审批直接走过期分支
 
     # ---- Real I/O channels ---- 真实对外通信通道
@@ -59,6 +64,10 @@ class AgentState(TypedDict, total=False):
 
     # ---- Loop guards ---- 循环保护，防止死循环
     human_rejection_count: int  # >= MAX_HUMAN_REJECTIONS routes to manual_queue
+    # Context revalidations that actually found a change. Bounds the
+    # revalidate -> summarize -> interrupt cycle when the context keeps
+    # drifting; >= MAX_REVALIDATIONS routes to manual_queue.
+    revalidation_count: int
     rejection_reason: str | None  # captured from Slack reject modal; carried into next Draft
     send_retry_count: int  # >= MAX_SEND_RETRIES routes to failed_manual
 
@@ -122,6 +131,7 @@ def initial_state(
         approval_status="",
         approver_id="",
         approval_timestamp="",
+        approval_requested_at="",
         email_thread_id=email_thread_id,
         slack_channel="",
         slack_message_ts="",
@@ -129,6 +139,7 @@ def initial_state(
         sent_message_id=None,
         send_status="pending",
         human_rejection_count=0,
+        revalidation_count=0,
         rejection_reason=None,
         send_retry_count=0,
         ticket_external_status="open",
