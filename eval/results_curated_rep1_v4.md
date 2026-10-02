@@ -1,6 +1,6 @@
-# HITL Agent Eval Results — v4 (curated dataset)
+# HITL Agent Eval Results — v4 (curated_rep1 dataset)
 
-_Generated: 2026-10-02T15:31:25.011910+00:00_
+_Generated: 2026-10-02T15:44:54.946289+00:00_
 
 **Mode: real LLM (OpenAI / `deepseek-chat`)**
 
@@ -12,7 +12,7 @@ _Generated: 2026-10-02T15:31:25.011910+00:00_
 | Intent accuracy | 70.0% [40%–100%] | >85% | Exact-match vs expected_intent |
 | Escalation precision | 90.0% [70%–100%] | >90% | Correct escalate/auto-send decision |
 | Response quality (LLM judge) | 4.20/5 [3.70–4.70] | >4.0/5 | LLM-as-judge rubric score |
-| Total run cost | $0.0000 | — | 31,697 tokens; $0.0000/ticket avg |
+| Total run cost | $0.0000 | — | 33,817 tokens; $0.0000/ticket avg |
 
 ## Per-ticket results
 

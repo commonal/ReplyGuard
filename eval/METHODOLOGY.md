@@ -201,6 +201,37 @@ A senior reviewer should expect these gaps to be named explicitly. We do
 - **No human-agent oracle.** We do not have a reference of what a real
   support engineer would have done on these tickets.
 
+### `false_auto_send_rate` is unusable at small denominators
+
+`false_auto_send_rate = dangerous auto-sends / total auto-sends`. On the
+bitext27 test split only 0-4 tickets auto-send, so **one decision flip moves the
+metric by 25-50 points**. Measured directly, 3 repetitions of the same code,
+model and prompt:
+
+| run | auto-sends | dangerous | FASR |
+|---|---|---|---|
+| v3 rep1 | 4 | 1 | 25% |
+| v3 rep2 | 4 | 2 | 50% |
+| v3 rep3 | 3 | 2 | 67% |
+| v4 rep1-3 | 2 | 1 | 50% (all three) |
+
+Two consequences that have already caused a wrong conclusion in this repo's
+history:
+
+1. **The metric can improve while the system gets worse.** v3 reported FASR 0%
+   in one baseline run that no longer exists on disk, and 25-67% in the three
+   repetitions of what was very nearly the same code. That 0% was a run in which
+   a single ticket happened to escalate, not a safety property.
+2. **A correct fix can look like a regression.** Making v3 more conservative cut
+   its auto-sends from 4 to 2-3, and FASR went *up*, because the numerator stayed
+   at 1 while the denominator halved.
+
+**Report the absolute counts, not the rate.** `bitext27_findings.md` already
+took this line: "the absolute count fell 6 -> 1". Read `auto_sends` and
+`dangerous auto-sends` per run, and run `--reps 3` before drawing any
+conclusion. A rate over a denominator below ~20 should be treated as a label for
+which tickets leaked, never as a score to compare between runs.
+
 ### Judge bias
 
 - **LLM-as-judge is OpenAI-on-OpenAI.** `gpt-4o-mini` drafts; `gpt-4o-mini`

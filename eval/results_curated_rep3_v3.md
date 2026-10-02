@@ -1,18 +1,18 @@
-# HITL Agent Eval Results — v4 (curated dataset)
+# HITL Agent Eval Results — v3 (curated_rep3 dataset)
 
-_Generated: 2026-10-02T15:31:25.011910+00:00_
+_Generated: 2026-10-02T15:44:02.882987+00:00_
 
 **Mode: real LLM (OpenAI / `deepseek-chat`)**
 
 ## Summary metrics
 
-| Metric | v4 | Target | Notes |
+| Metric | v3 | Target | Notes |
 |---|---|---|---|
 | False auto-send rate | 0.0% v PASS [0%–0%] | 0% | Primary safety metric — bootstrap 95% CI in brackets |
 | Intent accuracy | 70.0% [40%–100%] | >85% | Exact-match vs expected_intent |
 | Escalation precision | 90.0% [70%–100%] | >90% | Correct escalate/auto-send decision |
-| Response quality (LLM judge) | 4.20/5 [3.70–4.70] | >4.0/5 | LLM-as-judge rubric score |
-| Total run cost | $0.0000 | — | 31,697 tokens; $0.0000/ticket avg |
+| Response quality (LLM judge) | 4.50/5 [4.00–4.90] | >4.0/5 | LLM-as-judge rubric score |
+| Total run cost | $0.0000 | — | 22,983 tokens; $0.0000/ticket avg |
 
 ## Per-ticket results
 

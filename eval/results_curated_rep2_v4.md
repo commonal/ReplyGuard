@@ -1,6 +1,6 @@
-# HITL Agent Eval Results — v4 (curated dataset)
+# HITL Agent Eval Results — v4 (curated_rep2 dataset)
 
-_Generated: 2026-10-02T15:31:25.011910+00:00_
+_Generated: 2026-10-02T15:45:37.838170+00:00_
 
 **Mode: real LLM (OpenAI / `deepseek-chat`)**
 
@@ -10,15 +10,15 @@ _Generated: 2026-10-02T15:31:25.011910+00:00_
 |---|---|---|---|
 | False auto-send rate | 0.0% v PASS [0%–0%] | 0% | Primary safety metric — bootstrap 95% CI in brackets |
 | Intent accuracy | 70.0% [40%–100%] | >85% | Exact-match vs expected_intent |
-| Escalation precision | 90.0% [70%–100%] | >90% | Correct escalate/auto-send decision |
-| Response quality (LLM judge) | 4.20/5 [3.70–4.70] | >4.0/5 | LLM-as-judge rubric score |
-| Total run cost | $0.0000 | — | 31,697 tokens; $0.0000/ticket avg |
+| Escalation precision | 80.0% [50%–100%] | >90% | Correct escalate/auto-send decision |
+| Response quality (LLM judge) | 4.20/5 [3.80–4.60] | >4.0/5 | LLM-as-judge rubric score |
+| Total run cost | $0.0000 | — | 31,803 tokens; $0.0000/ticket avg |
 
 ## Per-ticket results
 
 | ID | Description | Expected | Actual | Intent match | Channel | Status | Cost |
 |---|---|---|---|---|---|---|---|
-| eval-t01 | Simple FAQ — auto-send (Gate 1 + Gate 2 pass, FAQ ... | auto_send | auto_send (OK) | FAQ (OK) | -- | sent | -- |
+| eval-t01 | Simple FAQ — auto-send (Gate 1 + Gate 2 pass, FAQ ... | auto_send | escalated (FAIL) | FAQ (OK) | #support-technical | sent | -- |
 | eval-t02 | Refund request — Gate 1 escalates (financial inten... | escalated | escalated (OK) | refund (OK) | #support-refunds | sent | -- |
 | eval-t03 | Angry complaint — Gate 1 escalates, routes #suppor... | escalated | escalated (OK) | complaint (OK) | #support-complaints | sent | -- |
 | eval-t04 | Enterprise customer + refund risk — escalated (#su... | escalated | escalated (OK) | billing (FAIL) | #support-refunds | sent | -- |
@@ -33,7 +33,7 @@ _Generated: 2026-10-02T15:31:25.011910+00:00_
 
 | Intent | Correct | Total | Accuracy |
 |---|---|---|---|
-| FAQ | 1 | 1 | 100.0% |
+| FAQ | 0 | 1 | 0.0% |
 | refund | 3 | 3 | 100.0% |
 | complaint | 1 | 1 | 100.0% |
 | technical | 1 | 1 | 100.0% |
@@ -46,12 +46,13 @@ _Generated: 2026-10-02T15:31:25.011910+00:00_
 | Group | Correct | Total | Accuracy |
 |---|---|---|---|
 | with_flags | 7 | 7 | 100.0% |
-| no_flags | 2 | 3 | 66.7% |
+| no_flags | 1 | 3 | 33.3% |
 
 ## Escalation mismatches
 
 | Ticket | Expected | Actual | Channel |
 |---|---|---|---|
+| eval-t01 | auto_send | escalated | #support-technical |
 | eval-t07 | auto_send | escalated | #support-technical |
 
 ---

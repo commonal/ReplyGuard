@@ -1,0 +1,727 @@
+{
+  "run_timestamp": "2026-10-02T15:54:05.995341+00:00",
+  "mode": "real-llm",
+  "dataset": "bitext27_test_rep1",
+  "version": "v3",
+  "ticket_count": 20,
+  "intent_accuracy": 0.5,
+  "intent_accuracy_ci95": [
+    0.25,
+    0.7
+  ],
+  "escalation_precision": 0.8,
+  "escalation_precision_ci95": [
+    0.6,
+    0.95
+  ],
+  "false_auto_send_rate": 0.0,
+  "false_auto_send_rate_ci95": [
+    0.0,
+    0.0
+  ],
+  "false_auto_send_safety_pass": true,
+  "response_quality_avg": 4.3,
+  "response_quality_ci95": [
+    4.0,
+    4.6
+  ],
+  "reply_language_accuracy": null,
+  "reply_language_details": null,
+  "total_run_tokens": 48638,
+  "total_run_cost_usd": 0.0,
+  "cost_per_ticket_avg_usd": 0.0,
+  "escalation_details": {
+    "precision": 0.8,
+    "correct": 16,
+    "total": 20,
+    "mismatches": [
+      {
+        "ticket_id": "bitext27-t02",
+        "description": "Bitext:edit_account -> FAQ (account-detail change \u2014 FAQ)",
+        "expected": "auto_send",
+        "actual": "escalated",
+        "actual_channel": "#support-technical"
+      },
+      {
+        "ticket_id": "bitext27-t03",
+        "description": "Bitext:switch_account -> FAQ (account switching \u2014 FAQ)",
+        "expected": "auto_send",
+        "actual": "escalated",
+        "actual_channel": "#support-technical"
+      },
+      {
+        "ticket_id": "bitext27-t17",
+        "description": "Bitext:delivery_options -> info (delivery options \u2014 info [e-commerce])",
+        "expected": "auto_send",
+        "actual": "escalated",
+        "actual_channel": "#support-technical"
+      },
+      {
+        "ticket_id": "bitext27-t18",
+        "description": "Bitext:delivery_period -> info (delivery timing \u2014 info [e-commerce])",
+        "expected": "auto_send",
+        "actual": "escalated",
+        "actual_channel": "#support-technical"
+      }
+    ]
+  },
+  "false_auto_send_details": {
+    "rate": 0.0,
+    "false_auto_sends": [],
+    "auto_send_count": 1,
+    "safety_pass": true
+  },
+  "failure_slice": {
+    "by_intent": {
+      "FAQ": {
+        "correct": 1,
+        "total": 3,
+        "accuracy": 0.3333333333333333
+      },
+      "other": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1.0
+      },
+      "refund": {
+        "correct": 3,
+        "total": 3,
+        "accuracy": 1.0
+      },
+      "billing": {
+        "correct": 3,
+        "total": 3,
+        "accuracy": 1.0
+      },
+      "complaint": {
+        "correct": 1,
+        "total": 1,
+        "accuracy": 1.0
+      },
+      "info": {
+        "correct": 0,
+        "total": 2,
+        "accuracy": 0.0
+      }
+    },
+    "by_has_risk_flags": {
+      "with_flags": {
+        "correct": 0,
+        "total": 0,
+        "accuracy": 0.0
+      },
+      "no_flags": {
+        "correct": 16,
+        "total": 20,
+        "accuracy": 0.8
+      }
+    },
+    "false_auto_sends_by_intent": {}
+  },
+  "response_quality_details": {
+    "avg_score": 4.3,
+    "per_ticket": [
+      {
+        "ticket_id": "bitext27-t01",
+        "score": 5,
+        "reason": "The reply directly addresses the unsubscribe request with a warm tone, offers both agent-assisted and self-service options, and is concise and policy-grounded."
+      },
+      {
+        "ticket_id": "bitext27-t02",
+        "score": 4,
+        "reason": "Directly answers the question with a warm tone and offers further help, but lacks specific policy details or step-by-step guidance."
+      },
+      {
+        "ticket_id": "bitext27-t03",
+        "score": 4,
+        "reason": "Directly answers the request with a warm tone and clear next step, though the 5-business-day processing time is stated without policy citation."
+      },
+      {
+        "ticket_id": "bitext27-t04",
+        "score": 5,
+        "reason": "The agent directly addresses the account closure request, confirms intent to prevent errors, explains the irreversible consequence, and maintains a warm, concise tone."
+      },
+      {
+        "ticket_id": "bitext27-t05",
+        "score": 4,
+        "reason": "Directly addresses the refund question with a warm tone and policy grounding, though it could be more concise and specific about next steps."
+      },
+      {
+        "ticket_id": "bitext27-t06",
+        "score": 5,
+        "reason": "The reply directly answers how to find the refund policy, uses a warm and helpful tone, and offers further personalized assistance concisely."
+      },
+      {
+        "ticket_id": "bitext27-t07",
+        "score": 4,
+        "reason": "The reply is polite, concise, and asks for the needed reference to proceed, though it doesn't provide any status update or policy context."
+      },
+      {
+        "ticket_id": "bitext27-t08",
+        "score": 5,
+        "reason": "The reply directly answers where to report the error, uses a warm and helpful tone, provides clear next steps, and includes relevant policy context concisely."
+      },
+      {
+        "ticket_id": "bitext27-t09",
+        "score": 4,
+        "reason": "The response is warm, concise, and provides a clear next step, but it lacks specific policy grounding or details on the claims process beyond directing to an email."
+      },
+      {
+        "ticket_id": "bitext27-t10",
+        "score": 5,
+        "reason": "The reply directly answers the customer's question about leaving a review, offers a clear method, and maintains a warm, concise, and helpful tone."
+      },
+      {
+        "ticket_id": "bitext27-t11",
+        "score": 3,
+        "reason": "Acknowledges the request for a human agent and promises follow-up, but responds in Chinese to an English message and asks for more information instead of directly connecting the customer."
+      },
+      {
+        "ticket_id": "bitext27-t12",
+        "score": 4,
+        "reason": "The agent politely acknowledges the request and asks for more details to route appropriately, but does not directly provide a way to speak to customer support as requested."
+      },
+      {
+        "ticket_id": "bitext27-t13",
+        "score": 4,
+        "reason": "The agent responds warmly and asks for necessary details, but the policy note about forfeiting unused months may be premature and slightly confusing without knowing the purchase type."
+      },
+      {
+        "ticket_id": "bitext27-t14",
+        "score": 3,
+        "reason": "The reply is polite and asks for clarification, but it deflects the issue to another team without providing a direct answer or actionable help, making it vague and impersonal."
+      },
+      {
+        "ticket_id": "bitext27-t15",
+        "score": 4,
+        "reason": "The agent directly and warmly addresses the request, explains the policy limitation, and asks for account details, though it doesn't provide the specific fee amount."
+      },
+      {
+        "ticket_id": "bitext27-t16",
+        "score": 5,
+        "reason": "The reply directly clarifies that the company doesn't handle physical orders, offers alternative help, and maintains a warm, concise tone."
+      },
+      {
+        "ticket_id": "bitext27-t17",
+        "score": 5,
+        "reason": "The reply directly clarifies the misunderstanding, offers a helpful alternative, and maintains a warm, concise tone."
+      },
+      {
+        "ticket_id": "bitext27-t18",
+        "score": 5,
+        "reason": "The reply directly and politely explains that the company doesn't handle physical shipments, offers helpful guidance for tracking the package, and maintains a warm, concise tone."
+      },
+      {
+        "ticket_id": "bitext27-t19",
+        "score": 4,
+        "reason": "The agent politely asks for clarification to route the request correctly, but does not directly provide the requested information about changing a delivery address."
+      },
+      {
+        "ticket_id": "bitext27-t20",
+        "score": 4,
+        "reason": "Directly and politely addresses the issue, clarifies the support scope, and requests helpful details, though it could be slightly more concise."
+      }
+    ],
+    "llm_available": true
+  },
+  "per_ticket": [
+    {
+      "ticket_id": "bitext27-t01",
+      "description": "Bitext:newsletter_subscription -> FAQ (newsletter management \u2014 FAQ)",
+      "customer_message": "From: bitext27-t01@example.com\nSubject: Newsletter subscription\n\ni try to unsubscribe to ur companu newsletter",
+      "final_draft": "Hi there,\n\nThanks for reaching out \u2014 sorry for the trouble with the newsletter. You can unsubscribe at any time, and this applies to subscriptions including trials that converted to paid plans.\n\nTo get you off the list, could you confirm the email address the newsletter is going to? If it's bitext27-t01@example.com, just let me know and I'll take care of it right away. You can also use the \"Unsubscribe\" link at the bottom of any newsletter email, which processes immediately.\n\nLet us know and we'll make sure you stop receiving them.\n\nWarm regards,\nACME Support team",
+      "expected_intent": "FAQ",
+      "actual_intent": "FAQ",
+      "intent_match": true,
+      "expected_outcome": "auto_send",
+      "actual_outcome": "auto_send",
+      "outcome_match": true,
+      "expected_channel": "",
+      "actual_channel": "",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2446,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t02",
+      "description": "Bitext:edit_account -> FAQ (account-detail change \u2014 FAQ)",
+      "customer_message": "From: bitext27-t02@example.com\nSubject: Edit account\n\ni have to edit my personal info",
+      "final_draft": "Hi there,\n\nThanks for reaching out! You can update your personal info directly from your account settings \u2014 just log in and edit the details you'd like to change.\n\nIf you run into any trouble or need a hand with a specific field, just reply here and we'll be glad to help.\n\nBest,\nACME Support team",
+      "expected_intent": "FAQ",
+      "actual_intent": "FAQ",
+      "intent_match": true,
+      "expected_outcome": "auto_send",
+      "actual_outcome": "escalated",
+      "outcome_match": false,
+      "expected_channel": "",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2389,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t03",
+      "description": "Bitext:switch_account -> FAQ (account switching \u2014 FAQ)",
+      "customer_message": "From: bitext27-t03@example.com\nSubject: Switch account\n\nswitch to freemium account",
+      "final_draft": "Hi there,\n\nThanks for reaching out. I can help you switch to the freemium account.\n\nSince your account is in good standing, we can go ahead and process the switch. Please note that processing takes 5 business days.\n\nJust confirm you'd like us to proceed, and we'll get it started.\n\nBest,\nACME Support team",
+      "expected_intent": "FAQ",
+      "actual_intent": "billing",
+      "intent_match": false,
+      "expected_outcome": "auto_send",
+      "actual_outcome": "escalated",
+      "outcome_match": false,
+      "expected_channel": "",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [
+        "billing"
+      ],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2399,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t04",
+      "description": "Bitext:delete_account -> other (account deletion \u2014 sensitive, escalate)",
+      "customer_message": "From: bitext27-t04@example.com\nSubject: Delete account\n\nclosing  platinum account",
+      "final_draft": "Hi there,\n\nThanks for reaching out. I can help you close your Platinum account.\n\nBefore we proceed, could you confirm you'd like us to permanently close the account? Once closed, the account record is removed and this action can't be undone.\n\nJust reply to confirm and we'll take care of it.\n\nBest,\nACME Support team",
+      "expected_intent": "other",
+      "actual_intent": "FAQ",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2378,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t05",
+      "description": "Bitext:get_refund -> refund (refund request \u2014 money)",
+      "customer_message": "From: bitext27-t05@example.com\nSubject: Get refund\n\nhow do I get a compensation of my money?",
+      "final_draft": "Hi there,\n\nThanks for reaching out. I understand you'd like to know about getting your money back.\n\nTo set expectations clearly: per our refund policy, refunds are not available for partial months of service already rendered. That said, I'd like to look into your specific situation to see what options may apply to you.\n\nCould you share a bit more detail \u2014 such as the charge you're referring to and the date it was billed? Once I have that, I'll review your account and follow up with you directly.\n\nBest regards,\nACME Support team",
+      "expected_intent": "refund",
+      "actual_intent": "refund",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-refunds",
+      "actual_channel": "#support-refunds",
+      "actual_risk_flags": [
+        "refund",
+        "money_mention",
+        "refund_intent"
+      ],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2452,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t06",
+      "description": "Bitext:check_refund_policy -> refund (refund-policy question \u2014 refund mention)",
+      "customer_message": "From: bitext27-t06@example.com\nSubject: Check refund policy\n\ni do not know hoow i could check ur reimbursement policy",
+      "final_draft": "Hi there,\n\nThanks for reaching out! You can find our full reimbursement policy on our website \u2014 just head to the Help Center and look for the \"Refunds & Billing\" section, where we outline eligibility and how the process works.\n\nIf you'd like, let me know what you're looking into specifically (a recent charge, a subscription, etc.) and I'll be happy to walk you through it directly.\n\nBest,\nACME Support team",
+      "expected_intent": "refund",
+      "actual_intent": "info",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-refunds",
+      "actual_channel": "#support-refunds",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2433,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t07",
+      "description": "Bitext:track_refund -> refund (refund status \u2014 refund mention)",
+      "customer_message": "From: bitext27-t07@example.com\nSubject: Track refund\n\ncan I see if there is anything new on the reimbursement?",
+      "final_draft": "Hi there,\n\nThanks for checking in. I'm sorry, but I don't have a status update I can share on your reimbursement from the information available to me right now.\n\nTo make sure we look at the right case, could you reply with your account or ticket reference number? Once I have that, I'll pull up the details and let you know exactly where things stand.\n\nThanks for your patience,\nACME Support team",
+      "expected_intent": "refund",
+      "actual_intent": "refund",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-refunds",
+      "actual_channel": "#support-refunds",
+      "actual_risk_flags": [
+        "refund",
+        "money_mention",
+        "refund_intent"
+      ],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2425,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t08",
+      "description": "Bitext:payment_issue -> billing (payment failure \u2014 billing)",
+      "customer_message": "From: bitext27-t08@example.com\nSubject: Payment issue\n\ni cant make a payment where can i notify of an error",
+      "final_draft": "Hi there,\n\nThanks for reaching out \u2014 sorry to hear you're having trouble making a payment. We can definitely help you get that sorted.\n\nTo report a payment error, just reply to this email with a few details: the error message you're seeing, the payment method you're using, and roughly when the issue started. Our billing team will look into it right away.\n\nIf you'd like to cancel instead, note that cancellations received within 48 hours of your next billing date may be handled differently, so let us know your situation and we'll guide you through the right option.\n\nHappy to help however we can.\n\n\u2014 ACME Support team",
+      "expected_intent": "billing",
+      "actual_intent": "billing",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [
+        "billing"
+      ],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2479,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t09",
+      "description": "Bitext:complaint -> complaint (complaint \u2014 edge-case escalates)",
+      "customer_message": "From: bitext27-t09@example.com\nSubject: Complaint\n\nhelp me to file a claim",
+      "final_draft": "Hi there,\n\nThanks for reaching out, and I'm sorry to hear you've had a frustrating experience \u2014 I'd like to help you get this sorted.\n\nTo make sure your claim reaches the right team, please send the details of your complaint directly to legal@acmesaas.com. This is the channel our team uses for \"cancellation for cause\" claims, and submitting there will get you a proper response.\n\nIf you can include your account details and a short description of what went wrong, that will help them process things faster. And if there's anything I can do on my side in the meantime, just let me know.\n\nBest regards,\nACME Support team",
+      "expected_intent": "complaint",
+      "actual_intent": "complaint",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-complaints",
+      "actual_channel": "#support-complaints",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2472,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t10",
+      "description": "Bitext:review -> other (leaving a review \u2014 edge-case 'other')",
+      "customer_message": "From: bitext27-t10@example.com\nSubject: Review\n\nuhave a method to leave an opinion about ur services",
+      "final_draft": "Hi there,\n\nThanks for reaching out! Yes \u2014 you're welcome to leave a review of our services. You can share your feedback by replying directly to this message, and we'll make sure it reaches the right team.\n\nIf there's anything specific you'd like us to look into, just let us know and we'll be glad to help.\n\nBest,\nACME Support team",
+      "expected_intent": "other",
+      "actual_intent": "info",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2402,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t11",
+      "description": "Bitext:contact_human_agent -> other (explicit human request)",
+      "customer_message": "From: bitext27-t11@example.com\nSubject: Contact human agent\n\nI do not understand you, help me chatting with someone",
+      "final_draft": "\u60a8\u597d\uff0c\u5f88\u62b1\u6b49\u7ed9\u60a8\u5e26\u6765\u56f0\u60d1\u3002\u6211\u4eec\u5df2\u6536\u5230\u60a8\u5e0c\u671b\u4e0e\u4eba\u5de5\u5ba2\u670d\u6c9f\u901a\u7684\u8bf7\u6c42\uff0c\u4f1a\u5c3d\u5feb\u4e3a\u60a8\u5b89\u6392\u4eba\u5de5\u540c\u4e8b\u8ddf\u8fdb\u3002\n\n\u8bf7\u95ee\u60a8\u65b9\u4fbf\u7528\u4e2d\u6587\u7b80\u5355\u63cf\u8ff0\u4e00\u4e0b\u60a8\u9047\u5230\u7684\u95ee\u9898\u5417\uff1f\u8fd9\u6837\u6211\u4eec\u53ef\u4ee5\u66f4\u5feb\u5730\u5e2e\u60a8\u8f6c\u63a5\u5230\u5408\u9002\u7684\u540c\u4e8b\u3002\n\nACME Support team",
+      "expected_intent": "other",
+      "actual_intent": "other",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2389,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t12",
+      "description": "Bitext:contact_customer_service -> other (request to reach support)",
+      "customer_message": "From: bitext27-t12@example.com\nSubject: Contact customer service\n\nI want help to speak to customer support",
+      "final_draft": "Hi there,\n\nThanks for reaching out \u2014 happy to connect you with our support team.\n\nCould you share a bit more about what you need help with? Once we know the issue, we'll route you to the right person and get things moving.\n\nACME Support team",
+      "expected_intent": "other",
+      "actual_intent": "other",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2382,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t13",
+      "description": "Bitext:cancel_order -> billing (order cancellation \u2014 money [e-commerce])",
+      "customer_message": "From: bitext27-t13@example.com\nSubject: Cancel order\n\nI cannot pay for the last purchase I have made, cancel it",
+      "final_draft": "Hi there,\n\nThanks for reaching out, and I'm sorry to hear the last charge is a problem.\n\nI want to make sure I point you in the right direction, so could you confirm which purchase you'd like cancelled \u2014 the order or invoice number, or the date it was placed? Once I have that, I'll take a look at what's possible for your account.\n\nOne thing to flag up front: if this relates to an annual subscription, our policy is that cancelling mid-term forfeits the remaining unused months, so I'd rather be upfront about that before we go further.\n\nJust send over those details and I'll get right on it.\n\nBest,\nACME Support team",
+      "expected_intent": "billing",
+      "actual_intent": "billing",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [
+        "billing"
+      ],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2488,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t14",
+      "description": "Bitext:change_order -> other (order change \u2014 no SaaS equivalent [e-commerce])",
+      "customer_message": "From: bitext27-t14@example.com\nSubject: Change order\n\ni cant add some items to order370795561790",
+      "final_draft": "Hi there,\n\nThanks for reaching out. I'm sorry you're running into trouble adding items to order 370795561790.\n\nThat request falls outside what our support team can help with directly, so I want to make sure you get to the right place. Could you let me know a bit more about where you're trying to add the items \u2014 for example, in your account dashboard or during checkout? That way I can point you to the correct team or resource.\n\nHappy to help however I can.\n\n\u2014 ACME Support team",
+      "expected_intent": "other",
+      "actual_intent": "out_of_domain",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2454,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t15",
+      "description": "Bitext:check_cancellation_fee -> billing (cancellation fee \u2014 money [e-commerce])",
+      "customer_message": "From: bitext27-t15@example.com\nSubject: Check cancellation fee\n\nI can't ifnd the bloody termination charge, I need help",
+      "final_draft": "Hi there,\n\nThanks for reaching out \u2014 happy to help you track down that termination charge.\n\nI want to be upfront: I can't confirm the exact fee amount from my end without pulling up your account details, so I don't want to give you a number that might be wrong. What I can tell you is that an early-termination fee can apply when a cancellation isn't received before the relevant deadline.\n\nIf you can share your account ID or the email on the account, I'll look into the specifics for you right away.\n\nBest,\nACME Support team",
+      "expected_intent": "billing",
+      "actual_intent": "billing",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [
+        "angry",
+        "billing",
+        "money_mention"
+      ],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2464,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t16",
+      "description": "Bitext:track_order -> other (order tracking \u2014 no SaaS equivalent [e-commerce])",
+      "customer_message": "From: bitext27-t16@example.com\nSubject: Track order\n\nchecking order status",
+      "final_draft": "Hi there,\n\nThanks for reaching out! It looks like you're checking on an order status, but ACME SaaS Co is a software company \u2014 we don't handle physical orders or shipments, so there's no order tracking on our side.\n\nIf you're looking for the status of a support ticket or a subscription-related request, just let us know the details and we'll be happy to help. If your order was placed with another vendor, you'll want to reach out to them directly for tracking.\n\nBest,\nACME Support team",
+      "expected_intent": "other",
+      "actual_intent": "out_of_domain",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2436,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t17",
+      "description": "Bitext:delivery_options -> info (delivery options \u2014 info [e-commerce])",
+      "customer_message": "From: bitext27-t17@example.com\nSubject: Delivery options\n\ncould you help me check what delivery methods you offer?",
+      "final_draft": "Hi there,\n\nThanks for reaching out! It looks like your question is about delivery methods, but ACME SaaS Co is a software company \u2014 we don't ship physical goods, so we don't have delivery options in the shipping sense.\n\nIf you meant something else, like how our software is delivered or accessed, just let us know a bit more and we'll point you in the right direction.\n\nBest,\nACME Support team",
+      "expected_intent": "info",
+      "actual_intent": "out_of_domain",
+      "intent_match": false,
+      "expected_outcome": "auto_send",
+      "actual_outcome": "escalated",
+      "outcome_match": false,
+      "expected_channel": "",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2415,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t18",
+      "description": "Bitext:delivery_period -> info (delivery timing \u2014 info [e-commerce])",
+      "customer_message": "From: bitext27-t18@example.com\nSubject: Delivery period\n\nneed help seeing when my packageis going to arrive",
+      "final_draft": "Hi there,\n\nThanks for reaching out. It looks like you're asking about a package delivery, but ACME SaaS Co is a software company \u2014 we don't handle physical shipments, so we're not able to look up delivery dates for you.\n\nIf your package is with a carrier (like UPS, FedEx, or your local postal service), the tracking number they gave you will show the most accurate estimated arrival. If you think this message was meant for a different company, feel free to let us know and we'll point you in the right direction.\n\nHappy to help with anything on the software side.\n\n\u2014 ACME Support team",
+      "expected_intent": "info",
+      "actual_intent": "out_of_domain",
+      "intent_match": false,
+      "expected_outcome": "auto_send",
+      "actual_outcome": "escalated",
+      "outcome_match": false,
+      "expected_channel": "",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2464,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t19",
+      "description": "Bitext:change_shipping_address -> other (shipping address \u2014 no SaaS equivalent [e-commerce])",
+      "customer_message": "From: bitext27-t19@example.com\nSubject: Change shipping address\n\ngive me information about a delivery address modification",
+      "final_draft": "Hi there,\n\nThanks for reaching out. I want to make sure you get the right help \u2014 could you tell me a bit more about what you're trying to do? For example, are you looking to update the delivery address on an order, or change the address on file for your account?\n\nOnce I know which one it is, I'll point you to the right steps.\n\nBest,\nACME Support team",
+      "expected_intent": "other",
+      "actual_intent": "out_of_domain",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2413,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    },
+    {
+      "ticket_id": "bitext27-t20",
+      "description": "Bitext:set_up_shipping_address -> other (shipping setup \u2014 no SaaS equivalent [e-commerce])",
+      "customer_message": "From: bitext27-t20@example.com\nSubject: Set up shipping address\n\nerror setting the shipping address up",
+      "final_draft": "Hi there,\n\nThanks for reaching out. It sounds like you're running into an error while setting up a shipping address.\n\nThat step isn't something our support team can configure for you \u2014 shipping address setup is handled through your account's in-app Settings page. If you're hitting an error there, could you let us know what you're seeing (a screenshot or the exact error message helps a lot)? That way we can point you in the right direction.\n\nIf you'd rather reach us directly, you can also email support@acmesaas.com.\n\nBest,\nACME Support team",
+      "expected_intent": "other",
+      "actual_intent": "out_of_domain",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2458,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "draft": 0.0
+      }
+    }
+  ]
+}

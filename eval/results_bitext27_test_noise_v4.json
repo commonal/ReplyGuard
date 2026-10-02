@@ -1,0 +1,58 @@
+{
+  "dataset": "bitext27_test",
+  "version": "v4",
+  "n_reps_requested": 3,
+  "n_reps_succeeded": 3,
+  "rep_files": [
+    "results_bitext27_test_rep1_v4.json",
+    "results_bitext27_test_rep2_v4.json",
+    "results_bitext27_test_rep3_v4.json"
+  ],
+  "per_metric_mean_std": {
+    "intent_accuracy": {
+      "mean": 0.4667,
+      "std": 0.0289,
+      "values": [
+        0.5,
+        0.45,
+        0.45
+      ]
+    },
+    "escalation_precision": {
+      "mean": 0.75,
+      "std": 0.0,
+      "values": [
+        0.75,
+        0.75,
+        0.75
+      ]
+    },
+    "false_auto_send_rate": {
+      "mean": 0.0,
+      "std": 0.0,
+      "values": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "response_quality_avg": {
+      "mean": 4.2333,
+      "std": 0.0764,
+      "values": [
+        4.25,
+        4.3,
+        4.15
+      ]
+    },
+    "total_run_cost_usd": {
+      "mean": 0.0,
+      "std": 0.0,
+      "values": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+}

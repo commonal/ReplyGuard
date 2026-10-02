@@ -1,0 +1,58 @@
+{
+  "dataset": "curated",
+  "version": "v4",
+  "n_reps_requested": 3,
+  "n_reps_succeeded": 3,
+  "rep_files": [
+    "results_curated_rep1_v4.json",
+    "results_curated_rep2_v4.json",
+    "results_curated_rep3_v4.json"
+  ],
+  "per_metric_mean_std": {
+    "intent_accuracy": {
+      "mean": 0.7,
+      "std": 0.0,
+      "values": [
+        0.7,
+        0.7,
+        0.7
+      ]
+    },
+    "escalation_precision": {
+      "mean": 0.8667,
+      "std": 0.0577,
+      "values": [
+        0.9,
+        0.8,
+        0.9
+      ]
+    },
+    "false_auto_send_rate": {
+      "mean": 0.0,
+      "std": 0.0,
+      "values": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "response_quality_avg": {
+      "mean": 4.2333,
+      "std": 0.0577,
+      "values": [
+        4.2,
+        4.2,
+        4.3
+      ]
+    },
+    "total_run_cost_usd": {
+      "mean": 0.0,
+      "std": 0.0,
+      "values": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+}
