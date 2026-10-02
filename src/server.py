@@ -75,15 +75,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         log.warning("IMAP listener NOT started (missing EMAIL_USER / EMAIL_APP_PASSWORD)")
 
-    # Feishu uses the FastAPI callback route. Slack Socket Mode remains an
-    # explicit compatibility fallback and is never started for the default
-    # Feishu provider.
-    if settings.approval_provider.lower() == "slack" and (
+    # Approval channel. Feishu prefers the outbound long connection (same shape
+    # as Slack Socket Mode: no public URL, no tunnel). The inbound
+    # /feishu/events webhook stays available for deployments that front the app
+    # with a reachable HTTPS endpoint.
+    provider = settings.approval_provider.lower()
+    if provider == "feishu" and settings.feishu_use_long_connection:
+        from src import feishu_ws
+
+        feishu_ws.register_loop(asyncio.get_running_loop())
+        feishu_ws.start()
+        log.info("Feishu approval via long connection (no public URL required)")
+    elif provider == "slack" and (
         settings.slack_app_token and settings.slack_bot_token and settings.slack_signing_secret
     ):
         bg_tasks.append(asyncio.create_task(run_socket_mode()))
         log.info("Legacy Slack Socket Mode started")
-    elif settings.approval_provider.lower() == "feishu":
+    elif provider == "feishu":
         log.info("Feishu approval callback available at /feishu/events")
     else:
         log.warning(
@@ -93,6 +101,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if provider == "feishu" and settings.feishu_use_long_connection:
+            from src import feishu_ws
+
+            feishu_ws.stop()
         for t in bg_tasks:
             t.cancel()
             with contextlib.suppress(BaseException):

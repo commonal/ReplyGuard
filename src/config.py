@@ -143,6 +143,14 @@ class Settings(BaseSettings):
         default="https://open.feishu.cn/open-apis",
         validation_alias=AliasChoices("FEISHU_API_BASE_URL"),
     )
+    # Receive card interactions over an outbound WebSocket long connection
+    # instead of the inbound /feishu/events webhook. Mirrors the Slack channel's
+    # Socket Mode, so no public URL or tunnel is needed. Select "使用长连接接收回调"
+    # as the subscription mode in the Feishu console for this to work.
+    feishu_use_long_connection: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("FEISHU_USE_LONG_CONNECTION"),
+    )
 
     # Per-intent destinations. With Feishu, one test chat is enough; when the
     # per-intent values are empty, channel_set falls back to FEISHU_RECEIVE_ID.
