@@ -293,6 +293,27 @@ What used to be a single LLM call is now a tight two-agent sub-graph. The **Draf
 
 We ran 10 tickets through both v3 and v4 with real LLM calls. **`false_auto_send_rate` stayed at 0% under both modes** — the deterministic safety contract held. One ticket (`eval-t07`, a high-confidence info question) flipped from auto-send under v3 to escalated under v4 — the Critic lowered `draft_confidence` below Gate 2's 0.85 threshold. On that 10-ticket set v3 and v4 tie; one ticket separates them, which is inside the noise at n=10. The difference shows up on the wider sets: across the 27-intent breadth eval and the 25-ticket adversarial grid, **v4 caught 5 of the 6 dangerous false auto-sends that v3 missed** (absolute count 6 → 1) plus 3 additional classifier-trap cases — that is what drove the default flip to v4. The cost of that safety gain is roughly **2× tokens per ticket**, and v4 over-escalates some simple FAQs.
 
+### Which language the reply comes back in
+
+**The customer's.** The Drafter writes the `draft` in the language of the customer's own
+message. It falls back to **Simplified Chinese** only when that language genuinely cannot
+be determined — empty body, digits only, punctuation or emoji only — because most customers
+on this deployment write Chinese.
+
+The language is read from what the customer actually wrote, however short: `refund` is
+English, `退款` is Chinese. That has to be spelled out, because all three drafting prompts
+and the entire `acme_policies.md` policy corpus are in English, and a model will otherwise
+take its cue from them.
+
+The Critic judges tone in the draft's own language, and treats "reply language does not
+match the customer's" as `revise` — so it neither penalises a valid Chinese draft nor lets
+an English reply to a Chinese message through.
+
+Measured across 5 inbound variants × 2 draft paths: before the rule, mixed Chinese/English
+and a one-word Chinese message (`退款`) both came back in **English**. With it, every case
+mirrors the customer, and a one-word English message (`refund`) still answers in English.
+Regression coverage: `tests/test_reply_language.py`.
+
 ### What v4 didn't change
 
 Jamie's experience is identical to the v3 walkthrough. Her phone still buzzes with a real email reply, threaded under her original "Refund please" message, looking like it came from a competent human at a real support team. The internal pre-Feishu drafting is now a 3-agent pipeline (Researcher → Drafter ↔ Critic) instead of two deterministic nodes — but the Feishu card, the human approval, the threading headers, the idempotent send, and the audit log are bit-for-bit the same.

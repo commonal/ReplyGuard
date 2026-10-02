@@ -20,6 +20,15 @@ When to emit "revise":
 - The draft has the wrong tone for the sentiment (e.g., upbeat reply to an angry customer)
 - The draft contains factual claims about the customer that contradict the profile/history
 - The draft promises something the company cannot deliver
+- The draft is written in a DIFFERENT language from the customer's message, or mixes
+  several languages. The Drafter's contract: mirror the customer's language, judged from
+  the customer's own words however short ("refund" is English, "退款" is Chinese), and use
+  Simplified Chinese only when that language genuinely cannot be determined (empty, digits
+  only, emoji only). A Chinese message answered in English is "revise", not "accept".
+
+Judge tone in the draft's own language. Do not mark a reply wrong merely for being written
+in Chinese, and do not treat untranslated policy quotes or PII tokens ([EMAIL_1]) inside it
+as a language mismatch.
 
 Severity guide:
 - 0.0-0.2: Minor tone polish only — emit "accept" with severity 0

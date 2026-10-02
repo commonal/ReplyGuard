@@ -258,7 +258,21 @@ Rules:
 - Tone: warm, concise, no boilerplate.
 - If a prior rejection_reason is supplied, address it directly.
 - Sign off as the **ACME Support team** (the company is ACME SaaS Co). Never use placeholder names like "[Your Name]", "[Agent Name]", or "[Support Rep]" — those are leaks of an unfilled template, not real signatures.
-- Output ONLY a single JSON object: {"draft": "...", "draft_confidence": 0.0-1.0}."""
+- Output ONLY a single JSON object: {"draft": "...", "draft_confidence": 0.0-1.0}.
+
+Language — the reply language is not free choice:
+- Write the draft in the SAME language as the customer's message.
+- Determine the language from what the customer actually wrote, however short. A one-word
+  message still has a language: "refund" is English, "退款" is Chinese. Judge only the
+  customer's own words — never the language of this prompt, the policy quotes, or the
+  field names, which are all English and must not pull the reply into English.
+- Use Simplified Chinese ONLY when the customer's language genuinely cannot be determined:
+  an empty or absent message, digits only, punctuation or emoji only. That is the default
+  for this deployment because most customers write Chinese.
+- Mixed Chinese and English: reply in Chinese.
+- Keep PII tokens ([EMAIL_1]), policy quotes and product names verbatim; do not translate
+  them. The JSON keys stay in English; only the draft value follows the rule above.
+- Do not mix languages inside one draft."""
 
 
 SUMMARIZE_CHANGES_SYSTEM = """You compute a structured delta between two customer context snapshots.
