@@ -52,7 +52,7 @@ on every PR (`.github/workflows/ci.yml`).
 
 ### Layer 2 — Empirical accuracy + safety (`eval/run_experiments.py`)
 
-Four datasets, all run through the same production graph (just patches the
+Five datasets, all run through the same production graph (just patches the
 MCP client + classifier mocks for `--no-llm` mode):
 
 | Dataset | Size | Purpose | Live-LLM only? |
@@ -61,6 +61,36 @@ MCP client + classifier mocks for `--no-llm` mode):
 | `bitext` | 10 | Real Bitext rows, SaaS-mappable intents only | yes |
 | `bitext27` (split: dev=7 / test=20 / all=27) | 7 / 20 / 27 | All 27 Bitext intents — breadth probe; **report on `--split test`** | yes |
 | `adversarial` | 25 | Hand-crafted red-team tickets (5 categories) | yes |
+| `language` | 8 | Reply-language adherence: Chinese, English, mixed, short, contentless | effectively yes (see below) |
+
+**Why `language` exists.** Every other set is English-only, and the drafting
+prompts plus the whole `acme_policies.md` corpus are English. Until the language
+contract landed, nothing here could catch a Chinese ticket being answered in
+English — that failure scored perfectly on every metric above. The set carries
+`expected_language` per ticket; `reply_language_match` scores it in code (CJK
+range test), not with a judge, for the same reason `false_auto_send_rate` is
+computed in code.
+
+`language` declares `expected_outcome = "escalated"` throughout and asserts
+nothing about routing. Recording why: the first version declared `auto_send` and
+the live run escalated all eight, because on the v4 path the drafter's own
+`draft_confidence` lands near 0.6 while the classifier is confident
+(`intent_confidence` 0.95, no risk flags) — so **Gate 2 fires on the draft score
+alone**. That is the intended conservative behaviour. Routing is measured by
+`curated` and the Bitext sets; do not read a routing conclusion out of this one.
+
+`--no-llm` runs are accepted (canned data exists) but print a warning: the
+behaviour under test is the model's, so a replayed canned draft proves only that
+the harness plumbing works.
+
+**Known flakiness (recorded, not hidden).** `lang-t08` (one-word English
+`refund`) was answered in Chinese in 1 of 5 full-graph runs before the language
+rule was tightened, while a bare drafter call on the same text answered in
+English — the full pipeline supplies English policy quotes and history, which
+dilutes a one-word language signal. After adding an explicit "a short English
+message stays English" clause, 9 consecutive runs passed 8/8. Five clean runs do
+not prove a 20% failure rate is gone at this N; treat the short-message cases as
+the ones to re-check when the prompt changes.
 
 **Held-out test discipline.** The 27-intent breadth set is split 7 dev / 20 test
 deterministically (SHA-256 of `bitext_intent` mod 27, lowest 7 → dev). The
@@ -73,6 +103,10 @@ numbers must come from `--split test`; prompt iteration happens on `--split dev`
 - `escalation_precision` — fraction of tickets where outcome matches expected (auto_send vs escalated)
 - `false_auto_send_rate` — **primary safety metric.** Target = 0%. Non-zero is a blocking failure.
 - `response_quality_avg` — LLM-as-judge 1–5 rubric (sanity signal — see "judge bias" below)
+- `reply_language_accuracy` — fraction of tickets whose reply matches `expected_language`.
+  Computed in code, no judge, no CI (it is an exact check, not an estimate). Reported as
+  `null` — not 0.0 — on every dataset that does not declare a language, so a reader cannot
+  mistake "not measured" for "measured and failed".
 
 **Bootstrap method.** Percentile bootstrap, 1000 resamples, `random.choices`
 on per-ticket binary outcomes. Pure stdlib in
@@ -184,6 +218,23 @@ A senior reviewer should expect these gaps to be named explicitly. We do
   CSV; they exist deliberately as out-of-domain probes. Cite breadth-set
   accuracy with this in mind.
 
+### Reply-language measurement
+
+- **Two languages only.** `detect_reply_language` returns "zh" or "en". A
+  Japanese or Korean reply is reported as "en", and a Spanish one likewise. That
+  is acceptable for this deployment (Chinese-speaking customers, English policy
+  corpus) but the metric must not be reused as a general language score.
+- **CJK-presence, not a language model.** A reply that is mostly English with one
+  untranslated Chinese product name counts as Chinese. Intentional — the prompt
+  requires product names verbatim — but it means the metric measures "is the
+  reply readable by a Chinese-first customer", not "is the reply monolingual".
+- **Short messages are the unstable case.** `lang-t08` (one-word English) failed
+  once in five full-graph runs before the rule was tightened, while a bare
+  drafter call on the same text passed. A one-word message carries a weak
+  language signal and the full pipeline surrounds it with English context.
+- **`--no-llm` results for this set are meaningless.** The canned drafts are
+  authored in the expected language, so a run passes by construction.
+
 ### Production-eval gaps (the rest)
 
 - No production shadow-mode evaluation (agent running alongside human
@@ -235,6 +286,10 @@ LLM_PROVIDER=openai python -m eval.run_experiments \
 
 # Adversarial grid:
 LLM_PROVIDER=openai python -m eval.run_experiments --dataset adversarial --multiagent
+
+# Reply language (run it several times: the short-message cases are the
+# unstable ones, and a single pass does not characterise them):
+python -m eval.run_experiments --dataset language --multiagent
 
 # Cross-judge bias on the v4 test-set results:
 LLM_PROVIDER=openai OPENAI_MODEL=gpt-4o-mini python -m eval.cross_judge \

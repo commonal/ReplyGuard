@@ -84,8 +84,10 @@ from eval.evaluators import (  # noqa: E402
     failure_slice,
     false_auto_send_rate,
     intent_accuracy,
+    reply_language_match,
     response_quality,
 )
+from eval.language_dataset import LANGUAGE_TICKETS  # noqa: E402
 from eval.stats import bootstrap_ci, mean_std  # noqa: E402
 from mcp_server.support_read import search_kb  # noqa: E402
 from src.graph import async_sqlite_checkpointer, compile_full_with_checkpointer  # noqa: E402
@@ -484,6 +486,9 @@ async def _run_all(
     esc_prec = escalation_precision(results)
     fasr = false_auto_send_rate(results)
     f_slice = failure_slice(results)
+    # Only the `language` dataset declares expected_language; every other
+    # dataset reports checked=0 and is unaffected.
+    lang_match = reply_language_match(results)
 
     # Response quality: async, may return None values if no LLM
     resp_qual = await response_quality(results)
@@ -545,6 +550,12 @@ async def _run_all(
         "response_quality_ci95": [round(resp_qual_ci[1], 4), round(resp_qual_ci[2], 4)]
         if per_ticket_response_quality_scores
         else None,
+        # Null on datasets that do not declare a language, so the key is
+        # present (stable schema) but never reads as a measured 0.0.
+        "reply_language_accuracy": round(lang_match["accuracy"], 4)
+        if lang_match["checked"]
+        else None,
+        "reply_language_details": lang_match if lang_match["checked"] else None,
         "total_run_tokens": total_run_tokens,
         "total_run_cost_usd": round(total_run_cost_usd, 6),
         "cost_per_ticket_avg_usd": round(cost_per_ticket_avg, 6),
@@ -859,6 +870,18 @@ def _write_results_md(
         "Correct escalate/auto-send decision |",
         f"| Response quality (LLM judge) | {resp_qual_str}{resp_ci_str} | >4.0/5 | "
         f"{resp_note} |",
+        *(
+            [
+                # Only rendered when the dataset declares languages, so the
+                # other datasets' reports are byte-identical to before.
+                f"| Reply language match | {metrics['reply_language_accuracy']:.1%} | 100% | "
+                f"{metrics['reply_language_details']['passed']}/"
+                f"{metrics['reply_language_details']['checked']} replies in the "
+                "customer's language (deterministic) |"
+            ]
+            if metrics.get("reply_language_accuracy") is not None
+            else []
+        ),
         f"| Total run cost | ${metrics.get('total_run_cost_usd', 0.0):.4f} | — | "
         f"{metrics.get('total_run_tokens', 0):,} tokens; "
         f"${metrics.get('cost_per_ticket_avg_usd', 0.0):.4f}/ticket avg |",
@@ -980,7 +1003,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=["curated", "bitext", "bitext27", "adversarial"],
+        choices=["curated", "bitext", "bitext27", "adversarial", "language"],
         default="curated",
         help=(
             "Which eval set to run. 'curated' = 10 hand-written tickets "
@@ -1085,6 +1108,17 @@ def main() -> None:
                 tickets = BITEXT_TICKETS_27
         else:  # adversarial
             tickets = ADVERSARIAL_TICKETS
+    elif args.dataset == "language":
+        # Canned data exists, so --no-llm runs — but it only exercises the
+        # harness plumbing. The behaviour under test is the model's, so a
+        # --no-llm pass says nothing about the language rule.
+        if args.no_llm:
+            print(
+                "[eval] WARNING: --dataset language measures a model behaviour. "
+                "With --no-llm the canned drafts are replayed, so a pass is "
+                "meaningless. Run without --no-llm for a real result."
+            )
+        tickets = LANGUAGE_TICKETS
     else:
         tickets = EVAL_TICKETS
 

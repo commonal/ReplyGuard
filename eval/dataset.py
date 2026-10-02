@@ -54,6 +54,11 @@ class EvalTicket:
     # Each element is a resume payload passed as Command(resume=<payload>).
     resume_sequence: list[dict[str, Any]] = field(default_factory=list)
 
+    # Optional expected reply language ("zh" | "en"). Only the `language` dataset
+    # sets this; the evaluator skips tickets that leave it empty, so no other
+    # dataset is affected. See eval/language_dataset.py.
+    expected_language: str = ""
+
 
 # ---------------------------------------------------------------------------
 # The 10 hand-curated tickets

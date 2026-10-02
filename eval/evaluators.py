@@ -351,13 +351,117 @@ def failure_slice(results: list[EvalResult]) -> dict[str, Any]:
     }
 
 
+#: CJK Unified Ideographs, plus the two extension blocks and the compatibility
+#: block. Hiragana/Katakana are deliberately excluded: this deployment serves
+#: Chinese and English, and counting kana as "Chinese" would misreport Japanese.
+_CJK_RANGES = (
+    (0x4E00, 0x9FFF),
+    (0x3400, 0x4DBF),
+    (0xF900, 0xFAFF),
+    (0x20000, 0x2A6DF),
+)
+
+
+def _has_cjk(text: str) -> bool:
+    return any(
+        any(lo <= ord(ch) <= hi for lo, hi in _CJK_RANGES) for ch in text
+    )
+
+
+def detect_reply_language(text: str) -> str:
+    """Classify a reply as "zh" or "en".
+
+    Any CJK ideograph makes it Chinese. That is the same rule the prompt states
+    for the reverse direction ("退款 is Chinese"), and it is the failure mode
+    that matters: a Chinese customer answered in English. A stray untranslated
+    policy quote or product name inside a Chinese reply leaves it Chinese, which
+    is correct — the prompt requires those verbatim.
+
+    Deliberately not a general language identifier: adding one would need a
+    dependency, and this deployment only distinguishes the two.
+    """
+    return "zh" if _has_cjk(text) else "en"
+
+
+def reply_language_match(results: list[EvalResult]) -> dict[str, Any]:
+    """Does the reply come back in the customer's language?
+
+    The drafter's contract is to mirror the customer's language and to fall back
+    to Simplified Chinese when that language cannot be determined (empty body,
+    digits only, punctuation or emoji only). Nothing measured it before: every
+    other dataset is English-only, so a reply that flipped to English for a
+    Chinese ticket would have scored perfectly.
+
+    Deterministic, not an LLM judge — the same reason false_auto_send_rate is
+    computed in code. Detecting CJK is a range test, and a judge adds cost and
+    its own bias for no accuracy gain.
+
+    Returns:
+        checked         — tickets that declared an expected language
+        passed          — replies in the expected language
+        accuracy        — passed / checked, or 0.0 when nothing was checked
+        mismatches      — per-ticket detail for the failures
+        skipped         — tickets without expected_language (all other datasets)
+    """
+    checked = 0
+    passed = 0
+    mismatches: list[dict[str, Any]] = []
+    skipped = 0
+
+    for r in results:
+        expected = getattr(r.ticket, "expected_language", "") or ""
+        if not expected:
+            skipped += 1
+            continue
+        checked += 1
+
+        # An error means no draft was produced; that is a failure of the run,
+        # not of the language rule, so it is reported with the error attached
+        # rather than silently counted as a language mismatch.
+        if r.error or not r.final_draft:
+            mismatches.append(
+                {
+                    "ticket_id": r.ticket.ticket_id,
+                    "expected_language": expected,
+                    "actual_language": "",
+                    "reason": "no_draft",
+                    "error": (r.error or "")[:200],
+                }
+            )
+            continue
+
+        actual = detect_reply_language(r.final_draft)
+        if actual == expected:
+            passed += 1
+        else:
+            mismatches.append(
+                {
+                    "ticket_id": r.ticket.ticket_id,
+                    "description": r.ticket.description,
+                    "expected_language": expected,
+                    "actual_language": actual,
+                    "draft_head": r.final_draft.strip()[:120],
+                }
+            )
+
+    return {
+        "checked": checked,
+        "passed": passed,
+        "accuracy": passed / checked if checked else 0.0,
+        "mismatches": mismatches,
+        "skipped": skipped,
+    }
+
+
 __all__ = [
     "EvalResult",
     "QUALITY_RUBRIC",
+    "detect_reply_language",
     "escalation_precision",
     "failure_slice",
     "false_auto_send_rate",
     "intent_accuracy",
+    "reply_language_match",
     "response_quality",
     "response_quality_single",
 ]

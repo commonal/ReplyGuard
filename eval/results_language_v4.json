@@ -1,0 +1,333 @@
+{
+  "run_timestamp": "2026-10-02T15:14:55.383832+00:00",
+  "mode": "real-llm",
+  "dataset": "language",
+  "version": "v4",
+  "ticket_count": 8,
+  "intent_accuracy": 0.375,
+  "intent_accuracy_ci95": [
+    0.125,
+    0.75
+  ],
+  "escalation_precision": 1.0,
+  "escalation_precision_ci95": [
+    1.0,
+    1.0
+  ],
+  "false_auto_send_rate": 0.0,
+  "false_auto_send_rate_ci95": [
+    0.0,
+    0.0
+  ],
+  "false_auto_send_safety_pass": true,
+  "response_quality_avg": 4.375,
+  "response_quality_ci95": [
+    4.125,
+    4.75
+  ],
+  "reply_language_accuracy": 1.0,
+  "reply_language_details": {
+    "checked": 8,
+    "passed": 8,
+    "accuracy": 1.0,
+    "mismatches": [],
+    "skipped": 0
+  },
+  "total_run_tokens": 20304,
+  "total_run_cost_usd": 0.0,
+  "cost_per_ticket_avg_usd": 0.0,
+  "escalation_details": {
+    "precision": 1.0,
+    "correct": 8,
+    "total": 8,
+    "mismatches": []
+  },
+  "false_auto_send_details": {
+    "rate": 0.0,
+    "false_auto_sends": [],
+    "auto_send_count": 0,
+    "safety_pass": true
+  },
+  "failure_slice": {
+    "by_intent": {
+      "FAQ": {
+        "correct": 6,
+        "total": 6,
+        "accuracy": 1.0
+      },
+      "info": {
+        "correct": 2,
+        "total": 2,
+        "accuracy": 1.0
+      }
+    },
+    "by_has_risk_flags": {
+      "with_flags": {
+        "correct": 0,
+        "total": 0,
+        "accuracy": 0.0
+      },
+      "no_flags": {
+        "correct": 8,
+        "total": 8,
+        "accuracy": 1.0
+      }
+    },
+    "false_auto_sends_by_intent": {}
+  },
+  "response_quality_details": {
+    "avg_score": 4.375,
+    "per_ticket": [
+      {
+        "ticket_id": "lang-t01",
+        "score": 5,
+        "reason": "The reply directly answers the password reset question with clear steps, a warm and polite tone, and helpful extra advice about spam folders, all in a concise format."
+      },
+      {
+        "ticket_id": "lang-t02",
+        "score": 4,
+        "reason": "The agent politely and clearly asks for necessary details to address the vague account settings inquiry, though it doesn't directly answer a question since none was specified."
+      },
+      {
+        "ticket_id": "lang-t03",
+        "score": 5,
+        "reason": "Directly answers the password reset question with clear steps, warm bilingual tone, and concise policy-grounded guidance."
+      },
+      {
+        "ticket_id": "lang-t04",
+        "score": 4,
+        "reason": "The reply politely and directly addresses the refund request by asking for necessary account details, though it could be slightly more concise."
+      },
+      {
+        "ticket_id": "lang-t05",
+        "score": 4,
+        "reason": "Directly answers where to find the invoice with a warm, helpful tone and offers follow-up, though it admits lacking policy specifics and uses 'usually' rather than a definitive answer."
+      },
+      {
+        "ticket_id": "lang-t06",
+        "score": 4,
+        "reason": "Politely and clearly asks for clarification when the customer's message is garbled, though it doesn't attempt to guess or offer alternative contact options."
+      },
+      {
+        "ticket_id": "lang-t07",
+        "score": 5,
+        "reason": "The reply directly answers the password reset question with clear steps, a warm and helpful tone, and a concise, well-structured format."
+      },
+      {
+        "ticket_id": "lang-t08",
+        "score": 4,
+        "reason": "The agent politely and directly asks for necessary details to process the refund, but the reply is somewhat generic and lacks policy grounding or a warm personal touch."
+      }
+    ],
+    "llm_available": true
+  },
+  "per_ticket": [
+    {
+      "ticket_id": "lang-t01",
+      "description": "Chinese, long -> reply in zh",
+      "customer_message": "From: customer@example.com\nSubject: \u5982\u4f55\u91cd\u7f6e\u5bc6\u7801\n\n\u4f60\u597d\uff0c\u6211\u5fd8\u8bb0\u5bc6\u7801\u4e86\uff0c\u8bf7\u95ee\u600e\u4e48\u91cd\u7f6e\uff1f",
+      "final_draft": "\u4f60\u597d\uff0c\n\n\u611f\u8c22\u4f60\u7684\u6765\u4fe1\u3002\u91cd\u7f6e\u5bc6\u7801\u5f88\u7b80\u5355\uff1a\u5728\u767b\u5f55\u9875\u9762\u70b9\u51fb\u201c\u5fd8\u8bb0\u5bc6\u7801\u201d\uff0c\u8f93\u5165\u4f60\u6ce8\u518c\u65f6\u4f7f\u7528\u7684\u90ae\u7bb1\u5730\u5740\uff0c\u6211\u4eec\u4f1a\u53d1\u9001\u4e00\u5c01\u5305\u542b\u91cd\u7f6e\u94fe\u63a5\u7684\u90ae\u4ef6\uff0c\u70b9\u51fb\u94fe\u63a5\u5373\u53ef\u8bbe\u7f6e\u65b0\u5bc6\u7801\u3002\n\n\u5982\u679c\u6536\u4ef6\u7bb1\u91cc\u6ca1\u6709\u770b\u5230\u90ae\u4ef6\uff0c\u5efa\u8bae\u4e5f\u68c0\u67e5\u4e00\u4e0b\u5783\u573e\u90ae\u4ef6\u6587\u4ef6\u5939\u3002\n\n\u5982\u679c\u8fd8\u6709\u4efb\u4f55\u95ee\u9898\uff0c\u968f\u65f6\u56de\u590d\u6211\u4eec\u3002\n\nACME \u652f\u6301\u56e2\u961f",
+      "expected_intent": "FAQ",
+      "actual_intent": "FAQ",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2541,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "drafter": 0.0,
+        "critic": 0.0
+      }
+    },
+    {
+      "ticket_id": "lang-t02",
+      "description": "Chinese, info intent -> reply in zh",
+      "customer_message": "From: customer@example.com\nSubject: \u54a8\u8be2\n\n\u4f60\u597d\uff0c\u6211\u60f3\u54a8\u8be2\u4e00\u4e0b\u8d26\u6237\u8bbe\u7f6e\u7684\u95ee\u9898\uff0c\u9ebb\u70e6\u5e2e\u6211\u770b\u4e00\u4e0b\uff0c\u8c22\u8c22\u3002",
+      "final_draft": "\u4f60\u597d\uff0c\u611f\u8c22\u4f60\u7684\u6765\u4fe1\uff01\n\n\u5173\u4e8e\u8d26\u6237\u8bbe\u7f6e\u7684\u95ee\u9898\uff0c\u6211\u5f88\u4e50\u610f\u5e2e\u4f60\u3002\u4e0d\u8fc7\u76ee\u524d\u4f60\u7684\u6d88\u606f\u91cc\u6ca1\u6709\u8bf4\u660e\u5177\u4f53\u662f\u54ea\u65b9\u9762\u7684\u8bbe\u7f6e\uff0c\u65b9\u4fbf\u7684\u8bdd\u8bf7\u8865\u5145\u4e00\u4e0b\u7ec6\u8282\uff0c\u6bd4\u5982\uff1a\n\n- \u4f60\u60f3\u4fee\u6539\u6216\u8bbe\u7f6e\u54ea\u4e00\u9879\uff08\u4f8b\u5982\u767b\u5f55\u90ae\u7bb1\u3001\u5bc6\u7801\u3001\u901a\u77e5\u504f\u597d\u3001\u53cc\u91cd\u9a8c\u8bc1\u7b49\uff09\uff1f\n- \u9047\u5230\u4e86\u4ec0\u4e48\u5177\u4f53\u73b0\u8c61\u6216\u62a5\u9519\u63d0\u793a\uff1f\n\n\u6536\u5230\u66f4\u591a\u4fe1\u606f\u540e\uff0c\u6211\u4f1a\u5c3d\u5feb\u4e3a\u4f60\u89e3\u7b54\u3002\n\nACME Support team",
+      "expected_intent": "info",
+      "actual_intent": "FAQ",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2576,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "drafter": 0.0,
+        "critic": 0.0
+      }
+    },
+    {
+      "ticket_id": "lang-t03",
+      "description": "Mixed Chinese + English -> reply in zh",
+      "customer_message": "From: customer@example.com\nSubject: \u6df7\u6392\n\nHello \u4f60\u597d, I want to know \u5982\u4f55 reset \u6211\u7684 password please \u8c22\u8c22\u3002",
+      "final_draft": "\u4f60\u597d\uff01\u611f\u8c22\u4f60\u7684\u6765\u4fe1\u3002\u5173\u4e8e\u91cd\u7f6e\u5bc6\u7801\uff0c\u4f60\u53ef\u4ee5\u524d\u5f80\u767b\u5f55\u9875\u9762\uff0c\u70b9\u51fb\u201c\u5fd8\u8bb0\u5bc6\u7801\u201d\u94fe\u63a5\uff0c\u7136\u540e\u6309\u7167\u63d0\u793a\u64cd\u4f5c\u5373\u53ef\u5b8c\u6210\u91cd\u7f6e\u3002\u5982\u679c\u4f60\u5728\u64cd\u4f5c\u8fc7\u7a0b\u4e2d\u9047\u5230\u4efb\u4f55\u95ee\u9898\uff0c\u6b22\u8fce\u968f\u65f6\u8054\u7cfb\u6211\u4eec\u3002\n\nACME Support team",
+      "expected_intent": "FAQ",
+      "actual_intent": "FAQ",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2487,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "drafter": 0.0,
+        "critic": 0.0
+      }
+    },
+    {
+      "ticket_id": "lang-t04",
+      "description": "Short Chinese -> reply in zh",
+      "customer_message": "From: customer@example.com\nSubject: \u9000\u6b3e\n\n\u9000\u6b3e",
+      "final_draft": "\u60a8\u597d\uff0c\n\n\u611f\u8c22\u60a8\u7684\u6765\u4fe1\u3002\u5173\u4e8e\u9000\u6b3e\uff0c\u6211\u4eec\u9700\u8981\u5148\u786e\u8ba4\u4e00\u4e0b\u60a8\u7684\u8d26\u6237\u4fe1\u606f\uff0c\u4ee5\u4fbf\u6838\u5b9e\u5177\u4f53\u60c5\u51b5\u3002\n\n\u8bf7\u63d0\u4f9b\u60a8\u7684\u8d26\u6237\u90ae\u7bb1\u6216\u8ba2\u5355\u53f7\uff0c\u6211\u4eec\u4f1a\u5c3d\u5feb\u4e3a\u60a8\u5904\u7406\u3002\n\nACME \u652f\u6301\u56e2\u961f",
+      "expected_intent": "FAQ",
+      "actual_intent": "refund",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [
+        "refund",
+        "refund_intent"
+      ],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2502,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "drafter": 0.0,
+        "critic": 0.0
+      }
+    },
+    {
+      "ticket_id": "lang-t05",
+      "description": "Chinese with an order number -> reply in zh",
+      "customer_message": "From: customer@example.com\nSubject: \u53d1\u7968\n\n\u8bf7\u95ee\u53d1\u7968\u5728\u54ea\u91cc\u4e0b\u8f7d\uff1f\u8ba2\u5355\u53f7 12345\u3002",
+      "final_draft": "\u60a8\u597d\uff0c\n\n\u611f\u8c22\u60a8\u7684\u6765\u4fe1\u3002\u5173\u4e8e\u53d1\u7968\u4e0b\u8f7d\uff0c\u76ee\u524d\u6211\u8fd9\u8fb9\u6ca1\u6709\u53ef\u53c2\u8003\u7684\u5177\u4f53\u653f\u7b56\u8bf4\u660e\uff0c\u4e3a\u907f\u514d\u7ed9\u60a8\u9519\u8bef\u4fe1\u606f\uff0c\u5efa\u8bae\u60a8\u767b\u5f55\u8d26\u6237\u540e\u5728\u300c\u8ba2\u5355\u300d\u6216\u300c\u8d26\u5355\u300d\u9875\u9762\u67e5\u770b\u8ba2\u5355 12345 \u7684\u8be6\u60c5\uff0c\u901a\u5e38\u53d1\u7968\u4f1a\u968f\u8ba2\u5355\u4e00\u5e76\u63d0\u4f9b\u4e0b\u8f7d\u3002\n\n\u5982\u679c\u9875\u9762\u4e0a\u627e\u4e0d\u5230\uff0c\u8bf7\u56de\u590d\u544a\u77e5\uff0c\u6211\u4eec\u4f1a\u8fdb\u4e00\u6b65\u4e3a\u60a8\u6838\u5b9e\u3002\n\nACME \u652f\u6301\u56e2\u961f",
+      "expected_intent": "info",
+      "actual_intent": "FAQ",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2533,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "drafter": 0.0,
+        "critic": 0.0
+      }
+    },
+    {
+      "ticket_id": "lang-t06",
+      "description": "Digits and symbols only (genuine fallback) -> reply in zh",
+      "customer_message": "From: customer@example.com\nSubject: ???\n\n???!!!",
+      "final_draft": "\u60a8\u597d\uff0c\u6211\u4eec\u6536\u5230\u4e86\u60a8\u7684\u6d88\u606f\uff0c\u4f46\u5185\u5bb9\u4f3c\u4e4e\u6ca1\u6709\u663e\u793a\u51fa\u6765\u2014\u2014\u53ea\u770b\u5230\u4e86\u4e00\u4e9b\u95ee\u53f7\u548c\u611f\u53f9\u53f7\u3002\n\n\u65b9\u4fbf\u7684\u8bdd\uff0c\u8bf7\u518d\u8be6\u7ec6\u8bf4\u660e\u4e00\u4e0b\u60a8\u9047\u5230\u7684\u95ee\u9898\u6216\u9700\u8981\u534f\u52a9\u7684\u4e8b\u9879\uff0c\u6211\u4eec\u4f1a\u5c3d\u5feb\u5e2e\u60a8\u5904\u7406\u3002\n\nACME \u652f\u6301\u56e2\u961f",
+      "expected_intent": "FAQ",
+      "actual_intent": "other",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2445,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "drafter": 0.0,
+        "critic": 0.0
+      }
+    },
+    {
+      "ticket_id": "lang-t07",
+      "description": "English, long -> reply in en",
+      "customer_message": "From: customer@example.com\nSubject: How do I reset my password?\n\nHi, I forgot my password. How do I reset it?",
+      "final_draft": "Hi there,\n\nThanks for reaching out! Resetting your password is quick and easy:\n\n1. Go to the login page and click \"Forgot password?\"\n2. Enter the email address associated with your account.\n3. Check your inbox for a reset link and follow the instructions to set a new password.\n\nIf the email doesn't arrive within a few minutes, be sure to check your spam or junk folder. And if you run into any trouble along the way, just reply here and we'll be happy to help.\n\nBest,\nACME Support team",
+      "expected_intent": "FAQ",
+      "actual_intent": "FAQ",
+      "intent_match": true,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2629,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "drafter": 0.0,
+        "critic": 0.0
+      }
+    },
+    {
+      "ticket_id": "lang-t08",
+      "description": "Short English -> reply in en",
+      "customer_message": "From: customer@example.com\nSubject: Refund\n\nrefund",
+      "final_draft": "Hi there,\n\nThanks for reaching out. I'd be glad to help with your refund request \u2014 could you share a bit more detail so I can look into it? Specifically:\n\n- The order or invoice number (or the email on the account)\n- What you'd like refunded and why\n\nOnce I have that, I'll check your account and let you know the next steps.\n\nBest,\nACME Support team",
+      "expected_intent": "FAQ",
+      "actual_intent": "refund",
+      "intent_match": false,
+      "expected_outcome": "escalated",
+      "actual_outcome": "escalated",
+      "outcome_match": true,
+      "expected_channel": "#support-technical",
+      "actual_channel": "#support-technical",
+      "actual_risk_flags": [
+        "refund",
+        "money_mention",
+        "refund_intent"
+      ],
+      "final_state": "sent",
+      "human_rejection_count": 0,
+      "error": null,
+      "total_tokens": 2591,
+      "total_cost_usd": 0.0,
+      "cost_breakdown": {
+        "classify": 0.0,
+        "drafter": 0.0,
+        "critic": 0.0
+      }
+    }
+  ]
+}
