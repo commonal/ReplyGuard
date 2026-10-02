@@ -73,6 +73,10 @@ EDGE_CASE_INTENTS: frozenset[str] = frozenset({"complaint", "other"})
 # "refund" is the canonical financial-risk intent. 金融风险意图：退款，直接升级人工
 FINANCIAL_INTENTS: frozenset[str] = frozenset({"refund"})
 
+# The request is about something this company does not offer (shipping, delivery,
+# physical orders, order tracking). Escalates unconditionally — see Check 4b.
+OUT_OF_DOMAIN_INTENT: str = "out_of_domain"
+
 # Keyword / phrase regex that signals a money-related request.
 # Scans customer_message body (case-insensitive). 正则表达式，**扫描用户原始消息文本**，大小写不敏感，匹配金钱相关关键词：美元金额、refund、charge、money back、billing、dispute、cancellation、account recovery。只要用户消息命中，判定金融风险。
 _MONEY_RE = re.compile(
@@ -150,6 +154,21 @@ def gate_one_policy_risk(state: AgentState) -> bool:
     if intent in EDGE_CASE_INTENTS:
         _append_flag(state, "edge_case_intent")
         _set_risk_level(state, "financial")
+        escalate = True
+
+    # --- Check 4b: Out-of-domain request ---
+    # The customer is asking about something this company does not offer
+    # (shipping, delivery, physical orders, order tracking). The classifier used
+    # to map these to "info" because the wording does ask for information, and
+    # "info" is in AUTO_SEND_SAFE_INTENTS — so a confidently mislabelled
+    # out-of-domain question auto-sent a reply drafted from a policy corpus that
+    # says nothing about shipping. bitesxt27 t16 reproduced this on every run.
+    #
+    # Escalates unconditionally and regardless of confidence: confident
+    # misclassification is exactly the case that leaked. risk_level is left
+    # alone — being out of scope is not financial, legal or compliance risk.
+    if intent == OUT_OF_DOMAIN_INTENT:
+        _append_flag(state, "out_of_domain")
         escalate = True
 
     # --- Check 5: Pre-loaded policy matches from Enrich Context ---

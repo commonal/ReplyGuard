@@ -18,11 +18,11 @@ review,FEEDBACK,uhave a method to leave an opinion about ur services,other,escal
 contact_human_agent,CONTACT,"I do not understand you, help me chatting with someone",other,escalated,explicit human request,test
 contact_customer_service,CONTACT,I want help to speak to customer support,other,escalated,request to reach support,test
 cancel_order,ORDER,"I cannot pay for the last purchase I have made, cancel it",billing,escalated,order cancellation — money [e-commerce],test
-change_order,ORDER,i cant add some items to order370795561790,other,escalated,order change — no SaaS equivalent [e-commerce],test
+change_order,ORDER,i cant add some items to order370795561790,out_of_domain,escalated,order change — no SaaS equivalent [e-commerce],test
 check_cancellation_fee,CANCEL,"I can't ifnd the bloody termination charge, I need help",billing,escalated,cancellation fee — money [e-commerce],test
-place_order,ORDER,"I have to order something, can I get some help?",other,escalated,placing an order — no SaaS equivalent [e-commerce],dev
-track_order,ORDER,checking order status,other,escalated,order tracking — no SaaS equivalent [e-commerce],test
-delivery_options,DELIVERY,could you help me check what delivery methods you offer?,info,auto_send,delivery options — info [e-commerce],test
-delivery_period,DELIVERY,need help seeing when my packageis going to arrive,info,auto_send,delivery timing — info [e-commerce],test
-change_shipping_address,SHIPPING,give me information about a delivery address modification,other,escalated,shipping address — no SaaS equivalent [e-commerce],test
-set_up_shipping_address,SHIPPING,error setting the shipping address up,other,escalated,shipping setup — no SaaS equivalent [e-commerce],test
+place_order,ORDER,"I have to order something, can I get some help?",out_of_domain,escalated,placing an order — no SaaS equivalent [e-commerce],dev
+track_order,ORDER,checking order status,out_of_domain,escalated,order tracking — no SaaS equivalent [e-commerce],test
+delivery_options,DELIVERY,could you help me check what delivery methods you offer?,out_of_domain,escalated,delivery options — out of scope [e-commerce],test
+delivery_period,DELIVERY,need help seeing when my packageis going to arrive,out_of_domain,escalated,delivery timing — out of scope [e-commerce],test
+change_shipping_address,SHIPPING,give me information about a delivery address modification,out_of_domain,escalated,shipping address — no SaaS equivalent [e-commerce],test
+set_up_shipping_address,SHIPPING,error setting the shipping address up,out_of_domain,escalated,shipping setup — no SaaS equivalent [e-commerce],test

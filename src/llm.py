@@ -153,7 +153,12 @@ def _model() -> str:
 
 
 class ClassificationResult(BaseModel):
-    intent: str = Field(description="One of: refund | technical | billing | complaint | FAQ | other")
+    intent: str = Field(
+        description=(
+            "One of: refund | billing | complaint | technical | basic_technical | "
+            "FAQ | info | out_of_domain | other"
+        )
+    )
     intent_confidence: float = Field(ge=0.0, le=1.0)
     sentiment: str = Field(description="One of: angry | neutral | positive")
     risk_flags: list[str] = Field(default_factory=list)
@@ -179,7 +184,7 @@ class ContextDelta(BaseModel):
 CLASSIFY_SYSTEM = """You are a strict classifier for customer support tickets.
 Output ONLY a single JSON object matching this schema, no preamble or trailing text:
 {
-  "intent":  one of: "refund" | "billing" | "complaint" | "technical" | "basic_technical" | "FAQ" | "info" | "other",
+  "intent":  one of: "refund" | "billing" | "complaint" | "technical" | "basic_technical" | "FAQ" | "info" | "other" | "out_of_domain",
   "intent_confidence": 0.0-1.0,
   "sentiment": "angry" | "neutral" | "positive",
   "risk_flags": ["refund", "billing", "angry", "legal", "compliance", ...],
@@ -201,6 +206,9 @@ Intent label definitions (pick the most specific match):
                       account / subscription / newsletter management
 - "info"            — general factual question about the product or company (pricing, hours,
                       which payment methods exist, policy summaries) — no change to the account
+- "out_of_domain"   — about something THIS COMPANY DOES NOT OFFER. ACME SaaS Co sells
+                      software subscriptions only: no physical goods, no shipping, no
+                      delivery, no order tracking, no placing or changing orders.
 - "other"           — does not fit cleanly, or the message is genuinely unclear
 
 Disambiguation rules — these labels overlap; apply in this order:
@@ -213,6 +221,13 @@ Disambiguation rules — these labels overlap; apply in this order:
   "basic_technical" ask "how do I do X".
 - Something broken → "technical". Nothing broken, just a question → FAQ /
   basic_technical / info.
+- "out_of_domain" beats "info" and "FAQ". Shipping, delivery, physical orders,
+  order tracking, or placing/changing an order are OUT OF DOMAIN even when the
+  wording asks for information ("where is my order", "what are the delivery
+  options", "how do I track my package") — that is a factual question, but about
+  something this company does not do. Label it "out_of_domain", never "info".
+  Do NOT lower the confidence for this: a shipping question is confidently
+  out of domain.
 
 Other rules:
 - "refund" intent → risk_flags contains "refund", risk_level="financial".
@@ -220,6 +235,8 @@ Other rules:
 - Mentions of lawyer / lawsuit / legal action → risk_flags contains "legal", risk_level="legal".
 - Sentiment "angry" → risk_flags contains "angry".
 - Be conservative with confidence — values under 0.85 force human review.
+- "out_of_domain" ALWAYS goes to a human, whatever its confidence. Never raise a
+  request into "info" just because the question looks answerable.
 
 Examples (note the deliberate typos — classify by intent anyway):
 
@@ -242,7 +259,13 @@ Input: "This is the third time! I'm calling my lawyer."
 Output: {"intent":"complaint","intent_confidence":0.93,"sentiment":"angry","risk_flags":["angry","legal"],"risk_level":"legal"}
 
 Input: "wat are ur support hours on weekends?"
-Output: {"intent":"info","intent_confidence":0.91,"sentiment":"neutral","risk_flags":[],"risk_level":"none"}"""
+Output: {"intent":"info","intent_confidence":0.91,"sentiment":"neutral","risk_flags":[],"risk_level":"none"}
+
+Input: "checking order status"
+Output: {"intent":"out_of_domain","intent_confidence":0.95,"sentiment":"neutral","risk_flags":[],"risk_level":"none"}
+
+Input: "what delivery options do you have for international shipping"
+Output: {"intent":"out_of_domain","intent_confidence":0.94,"sentiment":"neutral","risk_flags":[],"risk_level":"none"}"""
 
 
 DRAFT_SYSTEM = """You write customer-support replies that sound human and are policy-grounded.
@@ -259,6 +282,25 @@ Rules:
 - If a prior rejection_reason is supplied, address it directly.
 - Sign off as the **ACME Support team** (the company is ACME SaaS Co). Never use placeholder names like "[Your Name]", "[Agent Name]", or "[Support Rep]" — those are leaks of an unfilled template, not real signatures.
 - Output ONLY a single JSON object: {"draft": "...", "draft_confidence": 0.0-1.0}.
+
+draft_confidence — what the number means:
+The routing gate compares this value to 0.85 and pauses for a human whenever it is
+lower, so a number without a defined meaning makes the gate meaningless. Score the
+draft, not your mood:
+
+- 0.90-1.00  Every concrete claim is grounded in a supplied policy quote, nothing is
+             invented, and the tone fits the sentiment. A routine, well-grounded reply
+             belongs here. Do NOT mark a correct reply down out of modesty or
+             caution — a confidently correct draft scored low is a false escalation
+             and costs a human a review they did not need.
+- 0.85-0.89  Grounded and correct, but the tone or phrasing is a judgement call.
+- 0.60-0.84  You could not ground a concrete claim in the quotes, or you are making an
+             eligibility call you are not certain of.
+- below 0.60  You are guessing at facts, or the request falls outside what the supplied
+             policies cover.
+
+Most replies you write should land at 0.90 or above. Reserve the lower bands for a
+specific doubt you can name in one sentence — not as a general hedge.
 
 Language — the reply language is not free choice:
 - Write the draft in the SAME language as the customer's message.
