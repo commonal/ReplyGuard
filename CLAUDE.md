@@ -119,7 +119,7 @@ scripts/     preflight_smoke.py                   # credential pre-flight probe
 
 ## Env vars (see `.env.example`)
 
-Tunables (defaults): `REVALIDATE_THRESHOLD_MIN=15` · `MAX_HUMAN_REJECTIONS=3` · `MAX_SEND_RETRIES=3` · `SLA_DEADLINE_HOURS=24` · `IMAP_POLL_INTERVAL_SEC=30`.
+Tunables (defaults): `REVALIDATE_THRESHOLD_MIN=15` · `MAX_HUMAN_REJECTIONS=3` · `MAX_REVALIDATIONS=3` · `SLA_DEADLINE_HOURS=24` · `SLA_SWEEP_INTERVAL_SEC=60` · `IMAP_POLL_INTERVAL_SEC=30`.
 Secrets: `OPENROUTER_API_KEY` · `LANGSMITH_API_KEY` · `LANGSMITH_PROJECT` · `EMAIL_USER` · `EMAIL_APP_PASSWORD` · `FEISHU_APP_ID` · `FEISHU_APP_SECRET` · `FEISHU_VERIFICATION_TOKEN` (old `GMAIL_*` / Slack names remain compatibility aliases).
 
 ## Build conventions
@@ -134,7 +134,7 @@ Secrets: `OPENROUTER_API_KEY` · `LANGSMITH_API_KEY` · `LANGSMITH_PROJECT` · `
 
 1. **Durable execution** — kill server mid-interrupt → restart → Feishu approve → real email arrives. **Requires `PII_VAULT_DB_PATH` set** (opt-in persistent sidecar; default off preserves the 2026-05-09 C1/C2 in-memory-only PII hardening). `docker-compose.yml` opts in by default for the demo. Without the sidecar, resume cannot resolve the trustworthy recipient address and routes the ticket to `failed_manual` — bug found in the live smoke test 2026-05-24, fixed in `src/pii.py` + `src/config.py`; threat-model row A2 documents the trade-off.
 2. **Approve-with-edits** — Feishu card form edit; audit log shows both drafts.
-3. **SLA timeout** — 24h no Feishu response → auto-escalate to `manual_queue` + Feishu notice.
+3. **SLA timeout** — 24h no Feishu response → auto-escalate to `manual_queue` + Feishu notice. Implemented by `src/sla_watchdog.py`: it sweeps `src/approval_pending.py` (a side index of paused tickets) and resumes overdue ones with `{"action": "expire"}`. Set `SLA_DEADLINE_HOURS` low (and `SLA_SWEEP_INTERVAL_SEC` to a few seconds) to record the demo without waiting a day.
 
 ## Red flags — do not ship with these
 

@@ -42,6 +42,7 @@ from src import graph_runner  # noqa: E402
 # the default registry. Even modules that lazily import metrics (e.g. src.llm)
 # work because they push into the same singletons.
 from src import metrics as _metrics  # noqa: E402, F401
+from src import sla_watchdog  # noqa: E402
 from src.config import settings  # noqa: E402
 from src.email_listener import listen_forever  # noqa: E402
 from src.feishu_handler import (  # noqa: E402
@@ -97,6 +98,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.warning(
             "Approval callback NOT started (check APPROVAL_PROVIDER and provider credentials)"
         )
+
+    # SLA watchdog — escalates approval requests nobody answered by their
+    # deadline. Runs for both approval providers; it is about elapsed time, not
+    # about which chat the card was posted to.
+    bg_tasks.append(asyncio.create_task(sla_watchdog.run_forever(graph_runner.resume)))
 
     try:
         yield

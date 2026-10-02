@@ -216,6 +216,20 @@ async def resume(thread_id: str, value: dict[str, Any]) -> None:
 
     snapshot = await g.aget_state(config)
     persisted_version = snapshot.values.get("graph_version") if snapshot.values else None
+
+    # No checkpoint for this thread (already collected, index row outlived the
+    # ticket, or the id was never real). Resuming would make LangGraph start a
+    # NEW run from START, which then dies inside pii_redact on a missing
+    # customer_message — a confusing failure far from its cause. Refuse instead.
+    # The SLA watchdog hits this whenever a ticket is gone but its pending row
+    # survived a restart.
+    if not snapshot.values:
+        log.warning(
+            "Ticket %s has no checkpoint — refusing resume (ticket already gone?)",
+            thread_id,
+        )
+        return
+
     if persisted_version and persisted_version != _compiled_mode:
         log.warning(
             "Ticket %s checkpointed under %s but server is %s — refusing resume. "

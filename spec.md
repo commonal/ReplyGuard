@@ -435,10 +435,15 @@ Writes `slack_channel` to state. This deterministic routing logic lives in `src/
 
 ### Manual Queue (terminal)
 
-- Receives tickets from: rejection-count exceeded, SLA expired, send retries exhausted
-- Posts a final message to the Slack channel: *"🚦 Routed to manual queue — needs human ownership."*
+- Receives tickets from: rejection-count exceeded, **context revalidation limit (`MAX_REVALIDATIONS`)**, SLA expired, send retries exhausted
+- Posts a final message to the approval channel: *"🚦 {reason} — manual queue."*
 - Customer is notified via auto-reply email that their ticket is being handled by a human
-- Audit entry logged before terminal exit
+  (fixed template, no LLM: escalation means no draft was good enough to send). Skipped
+  when the escalation came from a failed send — the customer may already have partial mail.
+- Audit entry logged before terminal exit, recording `terminal` and `customer_notified`
+- SLA enforcement: `src/sla_watchdog.py` sweeps `src/approval_pending.py` (a side index of
+  tickets paused at the interrupt) and resumes overdue ones with `{"action": "expire"}`.
+  `sla_deadline` is refreshed on every re-prompt, so each decision round gets a full window.
 
 ---
 
